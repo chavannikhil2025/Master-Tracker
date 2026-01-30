@@ -1,687 +1,704 @@
-import React, { useState, useMemo, useEffect } from 'react';
-// import * as XLSX from 'xlsx'; // Loaded dynamically
-import { 
-  Upload, Plus, Edit, X, Search, Download, 
-  LayoutDashboard, DollarSign, Calendar, FileSpreadsheet, 
-  ChevronLeft, ChevronRight, Layers, CheckCircle,
-  ArrowUpDown, ArrowUp, ArrowDown, Wallet, ClipboardList 
-} from 'lucide-react';
-
-// --- Configuration & Types ---
-
-// Define strict column types based on user specification
-const COLUMN_DEFS = {
-  'Sr No': 'general',
-  'Client': 'general',
-  'Location': 'general',
-  'Callout': 'date',
-  'Status': 'general',
-  'State': 'general',
-  'Address': 'general',
-  'Contact Person': 'general',
-  'Contact No.': 'general',
-  'Sign Type': 'general',
-  'Survey By': 'general',
-  'Survey Date': 'date',
-  'Survey Shared': 'general', // Explicitly General
-  'Signage Size': 'general',
-  'Artwork Sent': 'date',
-  'Artwork Approval': 'date',
-  'Cost Shared': 'date',
-  'Cost Approval': 'date',
-  'PI No.': 'general',
-  'PI Date': 'date',
-  'PO Received': 'date',
-  'PO Number': 'general',
-  'JC No': 'general',
-  'JC Date': 'date',
-  'Production Start': 'date',
-  'Production Finish': 'date',
-  'Dispatch Date': 'date',
-  'At Site': 'date',
-  'Work Start': 'date',
-  'Work Complete': 'date',
-  'Contractor': 'general',
-  'Completion Certificate': 'general',
-  'Photo': 'general',
-  'Warranty': 'general',
-  'Invoice No': 'general',
-  'Invoice Date': 'date',
-  'Invoice Amt': 'number',
-  'Invoice Submitted': 'date',
-  'Payment Terms': 'general',
-  'Due Date': 'date',
-  'Payment received': 'number',
-  'Payment Balance': 'number',
-  'AWB NO': 'general',
-  'Aging': 'number'
-};
-
-// Form Group Organization
-const FIELD_GROUPS_TEMPLATE = {
-  'Client Info': ['Sr No', 'Client', 'Location', 'Callout', 'Status', 'State', 'Address', 'Contact Person', 'Contact No.'],
-  'Survey & Design': ['Sign Type', 'Survey By', 'Survey Date', 'Survey Shared', 'Signage Size', 'Artwork Sent', 'Artwork Approval'],
-  'Approvals & PO': ['Cost Shared', 'Cost Approval', 'PI No.', 'PI Date', 'PO Received', 'PO Number'],
-  'Production & Site': ['JC No', 'JC Date', 'Production Start', 'Production Finish', 'Dispatch Date', 'At Site', 'Work Start', 'Work Complete', 'Contractor', 'Completion Certificate', 'Photo', 'Warranty', 'AWB NO'],
-  'Finance': ['Invoice No', 'Invoice Date', 'Invoice Amt', 'Invoice Submitted', 'Payment Terms', 'Due Date', 'Payment received', 'Payment Balance', 'Aging']
-};
-
-const KNOWN_COLUMNS = Object.keys(COLUMN_DEFS);
-
-const STATUS_OPTIONS = [
-  "Payment Awaited",
-  "Invoice to be done",
-  "WIP",
-  "Material at Site",
-  "Material at Site-Hold",
-  "In Transit",
-  "Under Production",
-  "PO Awaited",
-  "Cost Approval awaited",
-  "Artwork Approval Awaited",
-  "Survey to be done",
-  "Photo Awaited",
-  "Paid"
-];
-
-// --- Helper Functions ---
-
-const toTitleCase = (str) => {
-  if (!str || typeof str !== 'string') return str;
-  if (STATUS_OPTIONS.includes(str)) return str;
-  return str.toLowerCase().replace(/\b\w/g, s => s.toUpperCase());
-};
-
-// Check column type (case-insensitive for robustness)
-const getColumnType = (colName) => {
-  if (!colName) return 'general';
-  const cleanName = colName.trim();
-  // Try exact match first
-  if (COLUMN_DEFS[cleanName]) return COLUMN_DEFS[cleanName];
-  // Try case-insensitive match
-  const match = Object.keys(COLUMN_DEFS).find(k => k.toLowerCase() === cleanName.toLowerCase());
-  return match ? COLUMN_DEFS[match] : 'general';
-};
-
-const parseExcelDate = (value) => {
-  if (!value) return '';
-  // Excel Serial Date
-  if (typeof value === 'number' && value > 20000) {
-    const date = new Date(Math.round((value - 25569) * 86400 * 1000));
-    return date.toISOString().split('T')[0];
-  }
-  // String Date
-  if (typeof value === 'string') {
-    if (value.includes('/')) {
-      const parts = value.split('/');
-      if (parts.length === 3) {
-        let year = parts[2];
-        if (year.length === 2) year = '20' + year;
-        return `${year}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
-      }
-    }
-    const date = new Date(value);
-    if (!isNaN(date.getTime())) return date.toISOString().split('T')[0];
-  }
-  return value;
-};
-
-const formatDisplayDate = (isoString) => {
-  if (!isoString) return '-';
-  try {
-    const date = new Date(isoString);
-    if (isNaN(date.getTime())) return isoString;
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = String(date.getFullYear()).slice(-2);
-    return `${day}/${month}/${year}`;
-  } catch (e) {
-    return isoString;
-  }
-};
-
-const formatNumber = (val, isCurrency = false) => {
-  if (val === '' || val === null || val === undefined) return '-';
-  const num = parseFloat(val);
-  if (isNaN(num)) return val;
-  return num.toLocaleString('en-IN', { 
-    maximumFractionDigits: 2,
-    style: isCurrency ? 'currency' : 'decimal',
-    currency: 'INR'
-  });
-};
-
-const StatusBadge = ({ status }) => {
-  if (!status) return <span className="text-gray-400">-</span>;
-  const s = String(status).toLowerCase();
-  let color = "bg-gray-100 text-gray-800";
-  
-  if (s === 'paid' || s.includes('complete') || s === 'done') {
-    color = "bg-green-100 text-green-800 border border-green-200";
-  } else if (s.includes('hold') || s.includes('cancel')) {
-    color = "bg-red-100 text-red-800 border border-red-200";
-  } else if (s.includes('invoice') || s.includes('survey') || s.includes('to be done')) {
-    color = "bg-blue-100 text-blue-800 border border-blue-200";
-  } else if (s.includes('awaited') || s.includes('wip') || s.includes('production') || s.includes('transit')) {
-    color = "bg-yellow-100 text-yellow-800 border border-yellow-200";
-  } else if (s.includes('material at site')) {
-    color = "bg-purple-100 text-purple-800 border border-purple-200";
-  }
-  
-  return (
-    <span className={`px-2 py-1 rounded-full text-xs font-medium ${color} whitespace-nowrap`}>
-      {status}
-    </span>
-  );
-};
-
-export default function ExcelTrackerManager() {
-  const [data, setData] = useState([]);
-  const [tableColumns, setTableColumns] = useState(KNOWN_COLUMNS); 
-  const [isEditing, setIsEditing] = useState(false);
-  const [currentId, setCurrentId] = useState(null);
-  const [formData, setFormData] = useState({});
-  const [searchTerm, setSearchTerm] = useState('');
-  const [fileName, setFileName] = useState('Project_Tracker.xlsx');
-  const [activeTab, setActiveTab] = useState('Client Info');
-  const [libLoaded, setLibLoaded] = useState(false);
-  
-  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
-  const [currentPage, setCurrentPage] = useState(1);
-  const rowsPerPage = 15;
-
-  const dynamicFieldGroups = useMemo(() => {
-    const groups = { ...FIELD_GROUPS_TEMPLATE };
-    const unknownColumns = tableColumns.filter(col => !KNOWN_COLUMNS.includes(col));
-    if (unknownColumns.length > 0) {
-      groups['Other Details'] = unknownColumns;
-    }
-    return groups;
-  }, [tableColumns]);
-
-  useEffect(() => {
-    const script = document.createElement('script');
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-    script.async = true;
-    script.onload = () => setLibLoaded(true);
-    document.body.appendChild(script);
-    return () => { document.body.removeChild(script); };
-  }, []);
-
-  const processData = (rawData) => {
-    return rawData.map((row) => {
-      const processedRow = {
-        ...row,
-        _id: row._id || Math.random().toString(36).substr(2, 9),
-      };
-
-      // Process columns based on defined type
-      Object.keys(processedRow).forEach(key => {
-        const type = getColumnType(key);
-        if (type === 'date' && processedRow[key]) {
-          processedRow[key] = parseExcelDate(processedRow[key]);
-        }
-      });
-
-      // Normalize Status
-      if (processedRow['Status']) {
-        const rawStatus = processedRow['Status'];
-        const match = STATUS_OPTIONS.find(opt => opt.toLowerCase() === rawStatus.toLowerCase());
-        if (match) {
-          processedRow['Status'] = match;
-        } else {
-          processedRow['Status'] = toTitleCase(rawStatus);
-        }
-      }
-
-      return processedRow;
-    });
-  };
-
-  const handleFileUpload = async (e) => {
-    if (!libLoaded) {
-      alert("Excel library is still loading...");
-      return;
-    }
-
-    const file = e.target.files[0];
-    if (!file) return;
-    setFileName(file.name);
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProTracker 360</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const XLSX = window.XLSX;
-      const workbook = XLSX.read(arrayBuffer);
-      const firstSheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[firstSheetName];
-      
-      const headerRow = XLSX.utils.sheet_to_json(worksheet, { header: 1 })[0];
-      if (headerRow && Array.isArray(headerRow)) {
-        setTableColumns(headerRow);
-      }
-
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
-      setData(processData(jsonData));
-    } catch (error) {
-      alert('Error reading file: ' + error.message);
-    }
-  };
-
-  const requestSort = (key) => {
-    let direction = 'asc';
-    if (sortConfig.key === key && sortConfig.direction === 'asc') {
-      direction = 'desc';
-    }
-    setSortConfig({ key, direction });
-  };
-
-  const handleSave = () => {
-    const processedForm = { ...formData };
-    if (currentId) {
-      setData(data.map(row => row._id === currentId ? processedForm : row));
-    } else {
-      setData([...data, { ...processedForm, _id: Math.random().toString(36).substr(2, 9) }]);
-    }
-    closeForm();
-  };
-
-  const closeForm = () => {
-    setIsEditing(false);
-    setFormData({});
-    setCurrentId(null);
-  };
-
-  const initiateEdit = (row) => {
-    setFormData({ ...row });
-    setCurrentId(row._id);
-    setIsEditing(true);
-    setActiveTab('Client Info');
-  };
-
-  const initiateNew = () => {
-    const empty = {};
-    tableColumns.forEach(c => empty[c] = '');
-    empty['Sr No'] = data.length + 1;
-    setFormData(empty);
-    setCurrentId(null);
-    setIsEditing(true);
-    setActiveTab('Client Info');
-  };
-
-  const handleExport = () => {
-    if (!libLoaded) return;
-    const cleanData = data.map(({ _id, ...rest }) => rest);
-    const XLSX = window.XLSX;
-    const ws = XLSX.utils.json_to_sheet(cleanData, { header: tableColumns });
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Tracker");
-    XLSX.writeFile(wb, `Updated_${fileName}`);
-  };
-
-  // --- Auto-Calculation Logic ---
-  useEffect(() => {
-    if (isEditing) {
-      const amt = parseFloat(formData['Invoice Amt']) || 0;
-      const rcv = parseFloat(formData['Payment received']) || 0;
-      const balance = amt - rcv;
-      
-      let aging = 0;
-      if (balance > 0 && formData['Invoice Date']) {
-        const invDate = new Date(formData['Invoice Date']);
-        const today = new Date();
-        const diffTime = Math.abs(today - invDate);
-        aging = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-      }
-
-      setFormData(prev => {
-        // Only update if calculations are different to avoid unnecessary renders
-        if (prev['Payment Balance'] === balance && prev['Aging'] === (balance <= 0 ? 0 : aging)) {
-          return prev;
+    <style>
+        /* Custom Scrollbar Styles */
+        .custom-scrollbar::-webkit-scrollbar {
+            height: 8px;
+            width: 8px;
         }
-        return {
-          ...prev,
-          'Payment Balance': balance,
-          'Aging': balance <= 0 ? 0 : aging
-        };
-      });
-    }
-  }, [formData['Invoice Amt'], formData['Payment received'], formData['Invoice Date'], isEditing]);
-
-  // Handle Input Change with Special Logic for Status
-  const handleInputChange = (col, value) => {
-    const updates = { [col]: value };
-
-    // Dynamic Logic: If Status changes to 'Paid'
-    if (col === 'Status' && value === 'Paid') {
-      const amt = parseFloat(formData['Invoice Amt']) || 0;
-      updates['Payment received'] = amt; // Auto-fill received amount
-      updates['Payment Balance'] = 0;    // Clear balance
-    }
-
-    setFormData(prev => ({ ...prev, ...updates }));
-  };
-
-
-  const sortedData = useMemo(() => {
-    const filtered = data.filter(row => 
-      Object.values(row).some(val => 
-        String(val).toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    );
-
-    if (sortConfig.key) {
-      filtered.sort((a, b) => {
-        const aVal = a[sortConfig.key] || '';
-        const bVal = b[sortConfig.key] || '';
-        const type = getColumnType(sortConfig.key);
-
-        if (type === 'number') {
-          return sortConfig.direction === 'asc' 
-            ? parseFloat(aVal || 0) - parseFloat(bVal || 0)
-            : parseFloat(bVal || 0) - parseFloat(aVal || 0);
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9;
         }
-
-        if (type === 'date') {
-           return sortConfig.direction === 'asc'
-            ? String(aVal).localeCompare(String(bVal))
-            : String(bVal).localeCompare(String(aVal));
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
         }
-
-        return sortConfig.direction === 'asc'
-          ? String(aVal).localeCompare(String(bVal))
-          : String(bVal).localeCompare(String(aVal));
-      });
-    }
-
-    return filtered;
-  }, [data, searchTerm, sortConfig]);
-
-  const pageCount = Math.ceil(sortedData.length / rowsPerPage);
-  const paginatedData = sortedData.slice(
-    (currentPage - 1) * rowsPerPage,
-    currentPage * rowsPerPage
-  );
-
-  // --- Dashboard Stats Calculation ---
-  const stats = useMemo(() => {
-    const totalProjects = data.length;
-    
-    // Sum Invoice Amt
-    const totalRevenue = data.reduce((sum, row) => sum + (parseFloat(row['Invoice Amt']) || 0), 0);
-    
-    // Sum Payment Received (New Requirement)
-    const totalReceived = data.reduce((sum, row) => sum + (parseFloat(row['Payment received']) || 0), 0);
-    
-    // Sum Outstanding
-    const outstanding = data.reduce((sum, row) => sum + (parseFloat(row['Payment Balance']) || 0), 0);
-
-    // Sum Invoice Amt where Status is 'Invoice to be done' (New Requirement)
-    const pipelineValue = data
-      .filter(row => (row['Status'] || '').toLowerCase() === 'invoice to be done')
-      .reduce((sum, row) => sum + (parseFloat(row['Invoice Amt']) || 0), 0);
-
-    return { totalProjects, totalRevenue, totalReceived, outstanding, pipelineValue };
-  }, [data]);
-
-  return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
-      
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm sticky top-0 z-20">
-        <div className="flex items-center gap-2">
-          <div className="bg-blue-600 p-2 rounded-lg">
-            <LayoutDashboard className="text-white h-5 w-5" />
-          </div>
-          <h1 className="text-xl font-bold text-slate-800">ProTracker <span className="text-blue-600">360</span></h1>
-        </div>
-        <div className="flex gap-3">
-           <label className={`flex items-center px-4 py-2 bg-slate-100 text-slate-700 rounded-lg cursor-pointer hover:bg-slate-200 transition text-sm font-medium border border-slate-300 ${!libLoaded ? 'opacity-50 cursor-not-allowed' : ''}`}>
-            <Upload className="mr-2 h-4 w-4" />
-            Import Excel
-            <input type="file" accept=".xlsx,.xls" onChange={handleFileUpload} className="hidden" disabled={!libLoaded} />
-          </label>
-          <button onClick={handleExport} disabled={data.length === 0 || !libLoaded} className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
-            <Download className="mr-2 h-4 w-4" />
-            Export
-          </button>
-        </div>
-      </header>
-
-      <main className="flex-1 p-6 max-w-[1920px] mx-auto w-full">
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
         
-        {/* Updated Dashboard Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
-            <div className="flex justify-between items-start mb-2">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Projects</p>
-              <div className="bg-blue-50 p-2 rounded-lg"><Layers className="h-4 w-4 text-blue-600" /></div>
-            </div>
-            <p className="text-2xl font-bold text-slate-800">{stats.totalProjects}</p>
-          </div>
+        /* Date input placeholder fix for iOS */
+        input[type="date"] {
+            min-height: 2.5rem;
+        }
+    </style>
+</head>
+<body class="bg-slate-50">
+    <div id="root"></div>
 
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
-            <div className="flex justify-between items-start mb-2">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Total Value</p>
-              <div className="bg-indigo-50 p-2 rounded-lg"><DollarSign className="h-4 w-4 text-indigo-600" /></div>
-            </div>
-            <p className="text-2xl font-bold text-slate-800">₹{stats.totalRevenue.toLocaleString()}</p>
-          </div>
+    <!-- Application Code -->
+    <script type="text/babel" data-type="module">
+        import React, { useState, useMemo, useEffect } from 'https://esm.sh/react@18.2.0';
+        import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
+        import { 
+          Upload, Plus, Edit, X, Search, Download, 
+          LayoutDashboard, DollarSign, Calendar, FileSpreadsheet, 
+          ChevronLeft, ChevronRight, Layers, CheckCircle,
+          ArrowUpDown, ArrowUp, ArrowDown, Wallet, ClipboardList 
+        } from 'https://esm.sh/lucide-react@0.263.1';
 
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
-            <div className="flex justify-between items-start mb-2">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Received</p>
-              <div className="bg-green-50 p-2 rounded-lg"><Wallet className="h-4 w-4 text-green-600" /></div>
-            </div>
-            <p className="text-2xl font-bold text-green-700">₹{stats.totalReceived.toLocaleString()}</p>
-          </div>
+        // --- Configuration & Types ---
 
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
-            <div className="flex justify-between items-start mb-2">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Outstanding</p>
-              <div className="bg-red-50 p-2 rounded-lg"><Calendar className="h-4 w-4 text-red-600" /></div>
-            </div>
-            <p className="text-2xl font-bold text-red-600">₹{stats.outstanding.toLocaleString()}</p>
-          </div>
+        const COLUMN_DEFS = {
+          'Sr No': 'general',
+          'Client': 'general',
+          'Location': 'general',
+          'Callout': 'date',
+          'Status': 'general',
+          'State': 'general',
+          'Address': 'general',
+          'Contact Person': 'general',
+          'Contact No.': 'general',
+          'Sign Type': 'general',
+          'Survey By': 'general',
+          'Survey Date': 'date',
+          'Survey Shared': 'general', 
+          'Signage Size': 'general',
+          'Artwork Sent': 'date',
+          'Artwork Approval': 'date',
+          'Cost Shared': 'date',
+          'Cost Approval': 'date',
+          'PI No.': 'general',
+          'PI Date': 'date',
+          'PO Received': 'date',
+          'PO Number': 'general',
+          'JC No': 'general',
+          'JC Date': 'date',
+          'Production Start': 'date',
+          'Production Finish': 'date',
+          'Dispatch Date': 'date',
+          'At Site': 'date',
+          'Work Start': 'date',
+          'Work Complete': 'date',
+          'Contractor': 'general',
+          'Completion Certificate': 'general',
+          'Photo': 'general',
+          'Warranty': 'general',
+          'Invoice No': 'general',
+          'Invoice Date': 'date',
+          'Invoice Amt': 'number',
+          'Invoice Submitted': 'date',
+          'Payment Terms': 'general',
+          'Due Date': 'date',
+          'Payment received': 'number',
+          'Payment Balance': 'number',
+          'AWB NO': 'general',
+          'Aging': 'number'
+        };
 
-           <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
-            <div className="flex justify-between items-start mb-2">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Inv. Pipeline</p>
-              <div className="bg-orange-50 p-2 rounded-lg"><ClipboardList className="h-4 w-4 text-orange-600" /></div>
-            </div>
-            <p className="text-xl font-bold text-slate-700 truncate" title="Value of 'Invoice to be done'">₹{stats.pipelineValue.toLocaleString()}</p>
-          </div>
-        </div>
+        const FIELD_GROUPS_TEMPLATE = {
+          'Client Info': ['Sr No', 'Client', 'Location', 'Callout', 'Status', 'State', 'Address', 'Contact Person', 'Contact No.'],
+          'Survey & Design': ['Sign Type', 'Survey By', 'Survey Date', 'Survey Shared', 'Signage Size', 'Artwork Sent', 'Artwork Approval'],
+          'Approvals & PO': ['Cost Shared', 'Cost Approval', 'PI No.', 'PI Date', 'PO Received', 'PO Number'],
+          'Production & Site': ['JC No', 'JC Date', 'Production Start', 'Production Finish', 'Dispatch Date', 'At Site', 'Work Start', 'Work Complete', 'Contractor', 'Completion Certificate', 'Photo', 'Warranty', 'AWB NO'],
+          'Finance': ['Invoice No', 'Invoice Date', 'Invoice Amt', 'Invoice Submitted', 'Payment Terms', 'Due Date', 'Payment received', 'Payment Balance', 'Aging']
+        };
 
-        <div className="flex justify-between items-center mb-4">
-          <div className="relative w-96">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search..."
-              value={searchTerm}
-              onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm text-sm"
-            />
-          </div>
-          <button onClick={initiateNew} className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium shadow-sm">
-            <Plus className="mr-2 h-4 w-4" />
-            Add New Record
-          </button>
-        </div>
+        const KNOWN_COLUMNS = Object.keys(COLUMN_DEFS);
 
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-          {data.length > 0 ? (
-            <>
-              <div className="overflow-x-auto custom-scrollbar">
-                <table className="w-full text-sm text-left">
-                  <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
-                    <tr>
-                      {tableColumns.map((col, index) => (
-                        <th 
-                          key={col} 
-                          onClick={() => requestSort(col)}
-                          className={`
-                            px-4 py-3 font-medium whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors select-none
-                            ${index === 0 ? 'sticky left-0 bg-slate-50 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]' : ''}
-                          `}
-                        >
-                          <div className="flex items-center gap-1">
-                            {col}
-                            {sortConfig.key === col ? (
-                              sortConfig.direction === 'asc' ? <ArrowUp className="h-3 w-3 text-blue-600" /> : <ArrowDown className="h-3 w-3 text-blue-600" />
-                            ) : (
-                              <ArrowUpDown className="h-3 w-3 text-slate-300" />
-                            )}
-                          </div>
-                        </th>
-                      ))}
-                      <th className="px-4 py-3 font-medium sticky right-0 bg-slate-50 z-10 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)] text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {paginatedData.map((row) => (
-                      <tr key={row._id} className="hover:bg-blue-50/50 transition-colors group">
-                        {tableColumns.map((col, index) => {
-                          const type = getColumnType(col);
-                          return (
-                            <td 
-                              key={col} 
-                              className={`px-4 py-3 text-slate-600 whitespace-nowrap ${index === 0 ? 'sticky left-0 bg-white group-hover:bg-blue-50/50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] font-medium text-slate-900' : ''}`}
-                            >
-                              {col === 'Status' ? <StatusBadge status={row[col]} /> :
-                               type === 'date' ? formatDisplayDate(row[col]) :
-                               type === 'number' ? formatNumber(row[col]) :
-                               row[col]
-                              }
-                            </td>
-                          );
-                        })}
-                        <td className="px-4 py-3 sticky right-0 bg-white group-hover:bg-blue-50/50 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.05)] text-center">
-                          <button
-                            onClick={() => initiateEdit(row)}
-                            className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-md transition"
-                            title="Edit Details"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+        const STATUS_OPTIONS = [
+          "Payment Awaited",
+          "Invoice to be done",
+          "WIP",
+          "Material at Site",
+          "Material at Site-Hold",
+          "In Transit",
+          "Under Production",
+          "PO Awaited",
+          "Cost Approval awaited",
+          "Artwork Approval Awaited",
+          "Survey to be done",
+          "Photo Awaited",
+          "Paid"
+        ];
+
+        // --- Helper Functions ---
+
+        const toTitleCase = (str) => {
+          if (!str || typeof str !== 'string') return str;
+          if (STATUS_OPTIONS.includes(str)) return str;
+          return str.toLowerCase().replace(/\b\w/g, s => s.toUpperCase());
+        };
+
+        const getColumnType = (colName) => {
+          if (!colName) return 'general';
+          const cleanName = colName.trim();
+          if (COLUMN_DEFS[cleanName]) return COLUMN_DEFS[cleanName];
+          const match = Object.keys(COLUMN_DEFS).find(k => k.toLowerCase() === cleanName.toLowerCase());
+          return match ? COLUMN_DEFS[match] : 'general';
+        };
+
+        const parseExcelDate = (value) => {
+          if (!value) return '';
+          if (typeof value === 'number' && value > 20000) {
+            const date = new Date(Math.round((value - 25569) * 86400 * 1000));
+            return date.toISOString().split('T')[0];
+          }
+          if (typeof value === 'string') {
+            if (value.includes('/')) {
+              const parts = value.split('/');
+              if (parts.length === 3) {
+                let year = parts[2];
+                if (year.length === 2) year = '20' + year;
+                return `${year}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+              }
+            }
+            const date = new Date(value);
+            if (!isNaN(date.getTime())) return date.toISOString().split('T')[0];
+          }
+          return value;
+        };
+
+        const formatDisplayDate = (isoString) => {
+          if (!isoString) return '-';
+          try {
+            const date = new Date(isoString);
+            if (isNaN(date.getTime())) return isoString;
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const year = String(date.getFullYear()).slice(-2);
+            return `${day}/${month}/${year}`;
+          } catch (e) {
+            return isoString;
+          }
+        };
+
+        const formatNumber = (val, isCurrency = false) => {
+          if (val === '' || val === null || val === undefined) return '-';
+          const num = parseFloat(val);
+          if (isNaN(num)) return val;
+          return num.toLocaleString('en-IN', { 
+            maximumFractionDigits: 2,
+            style: isCurrency ? 'currency' : 'decimal',
+            currency: 'INR'
+          });
+        };
+
+        const StatusBadge = ({ status }) => {
+          if (!status) return <span className="text-gray-400">-</span>;
+          const s = String(status).toLowerCase();
+          let color = "bg-gray-100 text-gray-800";
+          
+          if (s === 'paid' || s.includes('complete') || s === 'done') {
+            color = "bg-green-100 text-green-800 border border-green-200";
+          } else if (s.includes('hold') || s.includes('cancel')) {
+            color = "bg-red-100 text-red-800 border border-red-200";
+          } else if (s.includes('invoice') || s.includes('survey') || s.includes('to be done')) {
+            color = "bg-blue-100 text-blue-800 border border-blue-200";
+          } else if (s.includes('awaited') || s.includes('wip') || s.includes('production') || s.includes('transit')) {
+            color = "bg-yellow-100 text-yellow-800 border border-yellow-200";
+          } else if (s.includes('material at site')) {
+            color = "bg-purple-100 text-purple-800 border border-purple-200";
+          }
+          
+          return (
+            <span className={`px-2 py-1 rounded-full text-xs font-medium ${color} whitespace-nowrap`}>
+              {status}
+            </span>
+          );
+        };
+
+        // --- Main Component ---
+        function ExcelTrackerManager() {
+          const [data, setData] = useState([]);
+          const [tableColumns, setTableColumns] = useState(KNOWN_COLUMNS); 
+          const [isEditing, setIsEditing] = useState(false);
+          const [currentId, setCurrentId] = useState(null);
+          const [formData, setFormData] = useState({});
+          const [searchTerm, setSearchTerm] = useState('');
+          const [fileName, setFileName] = useState('Project_Tracker.xlsx');
+          const [activeTab, setActiveTab] = useState('Client Info');
+          const [libLoaded, setLibLoaded] = useState(false);
+          
+          const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+          const [currentPage, setCurrentPage] = useState(1);
+          const rowsPerPage = 15;
+
+          const dynamicFieldGroups = useMemo(() => {
+            const groups = { ...FIELD_GROUPS_TEMPLATE };
+            const unknownColumns = tableColumns.filter(col => !KNOWN_COLUMNS.includes(col));
+            if (unknownColumns.length > 0) {
+              groups['Other Details'] = unknownColumns;
+            }
+            return groups;
+          }, [tableColumns]);
+
+          useEffect(() => {
+            const script = document.createElement('script');
+            script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+            script.async = true;
+            script.onload = () => setLibLoaded(true);
+            document.body.appendChild(script);
+            return () => { document.body.removeChild(script); };
+          }, []);
+
+          const processData = (rawData) => {
+            return rawData.map((row) => {
+              const processedRow = {
+                ...row,
+                _id: row._id || Math.random().toString(36).substr(2, 9),
+              };
+
+              Object.keys(processedRow).forEach(key => {
+                const type = getColumnType(key);
+                if (type === 'date' && processedRow[key]) {
+                  processedRow[key] = parseExcelDate(processedRow[key]);
+                }
+              });
+
+              if (processedRow['Status']) {
+                const rawStatus = processedRow['Status'];
+                const match = STATUS_OPTIONS.find(opt => opt.toLowerCase() === rawStatus.toLowerCase());
+                if (match) {
+                  processedRow['Status'] = match;
+                } else {
+                  processedRow['Status'] = toTitleCase(rawStatus);
+                }
+              }
+
+              return processedRow;
+            });
+          };
+
+          const handleFileUpload = async (e) => {
+            if (!libLoaded) {
+              alert("Excel library is still loading...");
+              return;
+            }
+
+            const file = e.target.files[0];
+            if (!file) return;
+            setFileName(file.name);
+            
+            try {
+              const arrayBuffer = await file.arrayBuffer();
+              const XLSX = window.XLSX;
+              const workbook = XLSX.read(arrayBuffer);
+              const firstSheetName = workbook.SheetNames[0];
+              const worksheet = workbook.Sheets[firstSheetName];
               
-              <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200 bg-slate-50">
-                <span className="text-sm text-slate-500">
-                  Showing <span className="font-medium">{(currentPage - 1) * rowsPerPage + 1}</span> to <span className="font-medium">{Math.min(currentPage * rowsPerPage, sortedData.length)}</span> of <span className="font-medium">{sortedData.length}</span> results
-                </span>
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                    className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed text-slate-600"
-                  >
-                    <ChevronLeft className="h-5 w-5" />
-                  </button>
-                  <button 
-                    onClick={() => setCurrentPage(p => Math.min(pageCount, p + 1))}
-                    disabled={currentPage === pageCount}
-                    className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed text-slate-600"
-                  >
-                    <ChevronRight className="h-5 w-5" />
+              const headerRow = XLSX.utils.sheet_to_json(worksheet, { header: 1 })[0];
+              if (headerRow && Array.isArray(headerRow)) {
+                setTableColumns(headerRow);
+              }
+
+              const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+              setData(processData(jsonData));
+            } catch (error) {
+              alert('Error reading file: ' + error.message);
+            }
+          };
+
+          const requestSort = (key) => {
+            let direction = 'asc';
+            if (sortConfig.key === key && sortConfig.direction === 'asc') {
+              direction = 'desc';
+            }
+            setSortConfig({ key, direction });
+          };
+
+          const handleSave = () => {
+            const processedForm = { ...formData };
+            if (currentId) {
+              setData(data.map(row => row._id === currentId ? processedForm : row));
+            } else {
+              setData([...data, { ...processedForm, _id: Math.random().toString(36).substr(2, 9) }]);
+            }
+            closeForm();
+          };
+
+          const closeForm = () => {
+            setIsEditing(false);
+            setFormData({});
+            setCurrentId(null);
+          };
+
+          const initiateEdit = (row) => {
+            setFormData({ ...row });
+            setCurrentId(row._id);
+            setIsEditing(true);
+            setActiveTab('Client Info');
+          };
+
+          const initiateNew = () => {
+            const empty = {};
+            tableColumns.forEach(c => empty[c] = '');
+            empty['Sr No'] = data.length + 1;
+            setFormData(empty);
+            setCurrentId(null);
+            setIsEditing(true);
+            setActiveTab('Client Info');
+          };
+
+          const handleExport = () => {
+            if (!libLoaded) return;
+            const cleanData = data.map(({ _id, ...rest }) => rest);
+            const XLSX = window.XLSX;
+            const ws = XLSX.utils.json_to_sheet(cleanData, { header: tableColumns });
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Tracker");
+            XLSX.writeFile(wb, `Updated_${fileName}`);
+          };
+
+          useEffect(() => {
+            if (isEditing) {
+              const amt = parseFloat(formData['Invoice Amt']) || 0;
+              const rcv = parseFloat(formData['Payment received']) || 0;
+              const balance = amt - rcv;
+              
+              let aging = 0;
+              if (balance > 0 && formData['Invoice Date']) {
+                const invDate = new Date(formData['Invoice Date']);
+                const today = new Date();
+                const diffTime = Math.abs(today - invDate);
+                aging = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+              }
+
+              setFormData(prev => {
+                if (prev['Payment Balance'] === balance && prev['Aging'] === (balance <= 0 ? 0 : aging)) {
+                  return prev;
+                }
+                return {
+                  ...prev,
+                  'Payment Balance': balance,
+                  'Aging': balance <= 0 ? 0 : aging
+                };
+              });
+            }
+          }, [formData['Invoice Amt'], formData['Payment received'], formData['Invoice Date'], isEditing]);
+
+          const handleInputChange = (col, value) => {
+            const updates = { [col]: value };
+            if (col === 'Status' && value === 'Paid') {
+              const amt = parseFloat(formData['Invoice Amt']) || 0;
+              updates['Payment received'] = amt;
+              updates['Payment Balance'] = 0;
+            }
+            setFormData(prev => ({ ...prev, ...updates }));
+          };
+
+          const sortedData = useMemo(() => {
+            const filtered = data.filter(row => 
+              Object.values(row).some(val => 
+                String(val).toLowerCase().includes(searchTerm.toLowerCase())
+              )
+            );
+
+            if (sortConfig.key) {
+              filtered.sort((a, b) => {
+                const aVal = a[sortConfig.key] || '';
+                const bVal = b[sortConfig.key] || '';
+                const type = getColumnType(sortConfig.key);
+
+                if (type === 'number') {
+                  return sortConfig.direction === 'asc' 
+                    ? parseFloat(aVal || 0) - parseFloat(bVal || 0)
+                    : parseFloat(bVal || 0) - parseFloat(aVal || 0);
+                }
+
+                if (type === 'date') {
+                   return sortConfig.direction === 'asc'
+                    ? String(aVal).localeCompare(String(bVal))
+                    : String(bVal).localeCompare(String(aVal));
+                }
+
+                return sortConfig.direction === 'asc'
+                  ? String(aVal).localeCompare(String(bVal))
+                  : String(bVal).localeCompare(String(aVal));
+              });
+            }
+            return filtered;
+          }, [data, searchTerm, sortConfig]);
+
+          const pageCount = Math.ceil(sortedData.length / rowsPerPage);
+          const paginatedData = sortedData.slice(
+            (currentPage - 1) * rowsPerPage,
+            currentPage * rowsPerPage
+          );
+
+          const stats = useMemo(() => {
+            const totalProjects = data.length;
+            const totalRevenue = data.reduce((sum, row) => sum + (parseFloat(row['Invoice Amt']) || 0), 0);
+            const totalReceived = data.reduce((sum, row) => sum + (parseFloat(row['Payment received']) || 0), 0);
+            const outstanding = data.reduce((sum, row) => sum + (parseFloat(row['Payment Balance']) || 0), 0);
+            const pipelineValue = data
+              .filter(row => (row['Status'] || '').toLowerCase() === 'invoice to be done')
+              .reduce((sum, row) => sum + (parseFloat(row['Invoice Amt']) || 0), 0);
+
+            return { totalProjects, totalRevenue, totalReceived, outstanding, pipelineValue };
+          }, [data]);
+
+          return (
+            <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
+              <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm sticky top-0 z-20">
+                <div className="flex items-center gap-2">
+                  <div className="bg-blue-600 p-2 rounded-lg">
+                    <LayoutDashboard className="text-white h-5 w-5" />
+                  </div>
+                  <h1 className="text-xl font-bold text-slate-800">ProTracker <span className="text-blue-600">360</span></h1>
+                </div>
+                <div className="flex gap-3">
+                   <label className={`flex items-center px-4 py-2 bg-slate-100 text-slate-700 rounded-lg cursor-pointer hover:bg-slate-200 transition text-sm font-medium border border-slate-300 ${!libLoaded ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    <Upload className="mr-2 h-4 w-4" />
+                    Import Excel
+                    <input type="file" accept=".xlsx,.xls" onChange={handleFileUpload} className="hidden" disabled={!libLoaded} />
+                  </label>
+                  <button onClick={handleExport} disabled={data.length === 0 || !libLoaded} className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                    <Download className="mr-2 h-4 w-4" />
+                    Export
                   </button>
                 </div>
-              </div>
-            </>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-24 text-slate-400">
-              <FileSpreadsheet className="h-16 w-16 mb-4 opacity-50" />
-              <p className="text-lg font-medium text-slate-600">No data available</p>
-              <p className="text-sm">Upload an Excel file to get started</p>
-            </div>
-          )}
-        </div>
-      </main>
+              </header>
 
-      {isEditing && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
-              <h2 className="text-lg font-bold text-slate-800">
-                {currentId ? 'Edit Project Record' : 'Create New Project'}
-              </h2>
-              <button onClick={closeForm} className="text-slate-400 hover:text-slate-600">
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-
-            <div className="flex border-b border-slate-200 px-6 pt-2 bg-white sticky top-0 overflow-x-auto custom-scrollbar">
-              {Object.keys(dynamicFieldGroups).map(group => (
-                <button
-                  key={group}
-                  onClick={() => setActiveTab(group)}
-                  className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                    activeTab === group 
-                      ? 'border-blue-600 text-blue-600' 
-                      : 'border-transparent text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  {group}
-                </button>
-              ))}
-            </div>
-
-            <div className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-slate-50/50">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {dynamicFieldGroups[activeTab]?.map(col => {
-                  const type = getColumnType(col);
-                  return (
-                    <div key={col} className="flex flex-col gap-1">
-                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider truncate" title={col}>{col}</label>
-                      {col === 'Status' ? (
-                        <select
-                          value={formData[col] || ''}
-                          onChange={e => handleInputChange(col, e.target.value)}
-                          className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 text-sm bg-white"
-                        >
-                          <option value="">Select Status</option>
-                          {STATUS_OPTIONS.map(opt => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      ) : type === 'date' ? (
-                        <input
-                          type="date"
-                          value={formData[col] || ''}
-                          onChange={e => handleInputChange(col, e.target.value)}
-                          className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 text-sm"
-                        />
-                      ) : (
-                        <input
-                          type={type === 'number' ? "number" : "text"}
-                          value={formData[col] || ''}
-                          onChange={e => handleInputChange(col, e.target.value)}
-                          readOnly={col === 'Payment Balance' || col === 'Aging'}
-                          className={`px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 text-sm ${
-                            (col === 'Payment Balance' || col === 'Aging') ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white'
-                          }`}
-                        />
-                      )}
+              <main className="flex-1 p-6 max-w-[1920px] mx-auto w-full">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
+                  <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+                    <div className="flex justify-between items-start mb-2">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Projects</p>
+                      <div className="bg-blue-50 p-2 rounded-lg"><Layers className="h-4 w-4 text-blue-600" /></div>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
+                    <p className="text-2xl font-bold text-slate-800">{stats.totalProjects}</p>
+                  </div>
 
-            <div className="p-6 border-t border-slate-200 bg-white flex justify-end gap-3">
-              <button onClick={closeForm} className="px-5 py-2.5 text-slate-600 font-medium hover:bg-slate-100 rounded-lg transition text-sm">Cancel</button>
-              <button onClick={handleSave} className="px-5 py-2.5 bg-blue-600 text-white font-medium hover:bg-blue-700 rounded-lg shadow-lg shadow-blue-600/20 transition text-sm flex items-center">
-                <CheckCircle className="mr-2 h-4 w-4" />
-                Save Changes
-              </button>
+                  <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+                    <div className="flex justify-between items-start mb-2">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Total Value</p>
+                      <div className="bg-indigo-50 p-2 rounded-lg"><DollarSign className="h-4 w-4 text-indigo-600" /></div>
+                    </div>
+                    <p className="text-2xl font-bold text-slate-800">₹{stats.totalRevenue.toLocaleString()}</p>
+                  </div>
+
+                  <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+                    <div className="flex justify-between items-start mb-2">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Received</p>
+                      <div className="bg-green-50 p-2 rounded-lg"><Wallet className="h-4 w-4 text-green-600" /></div>
+                    </div>
+                    <p className="text-2xl font-bold text-green-700">₹{stats.totalReceived.toLocaleString()}</p>
+                  </div>
+
+                  <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+                    <div className="flex justify-between items-start mb-2">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Outstanding</p>
+                      <div className="bg-red-50 p-2 rounded-lg"><Calendar className="h-4 w-4 text-red-600" /></div>
+                    </div>
+                    <p className="text-2xl font-bold text-red-600">₹{stats.outstanding.toLocaleString()}</p>
+                  </div>
+
+                   <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+                    <div className="flex justify-between items-start mb-2">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Inv. Pipeline</p>
+                      <div className="bg-orange-50 p-2 rounded-lg"><ClipboardList className="h-4 w-4 text-orange-600" /></div>
+                    </div>
+                    <p className="text-xl font-bold text-slate-700 truncate" title="Value of 'Invoice to be done'">₹{stats.pipelineValue.toLocaleString()}</p>
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center mb-4">
+                  <div className="relative w-96">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search..."
+                      value={searchTerm}
+                      onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                      className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm text-sm"
+                    />
+                  </div>
+                  <button onClick={initiateNew} className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium shadow-sm">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add New Record
+                  </button>
+                </div>
+
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                  {data.length > 0 ? (
+                    <>
+                      <div className="overflow-x-auto custom-scrollbar">
+                        <table className="w-full text-sm text-left">
+                          <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
+                            <tr>
+                              {tableColumns.map((col, index) => (
+                                <th 
+                                  key={col} 
+                                  onClick={() => requestSort(col)}
+                                  className={`
+                                    px-4 py-3 font-medium whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors select-none
+                                    ${index === 0 ? 'sticky left-0 bg-slate-50 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]' : ''}
+                                  `}
+                                >
+                                  <div className="flex items-center gap-1">
+                                    {col}
+                                    {sortConfig.key === col ? (
+                                      sortConfig.direction === 'asc' ? <ArrowUp className="h-3 w-3 text-blue-600" /> : <ArrowDown className="h-3 w-3 text-blue-600" />
+                                    ) : (
+                                      <ArrowUpDown className="h-3 w-3 text-slate-300" />
+                                    )}
+                                  </div>
+                                </th>
+                              ))}
+                              <th className="px-4 py-3 font-medium sticky right-0 bg-slate-50 z-10 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)] text-center">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {paginatedData.map((row) => (
+                              <tr key={row._id} className="hover:bg-blue-50/50 transition-colors group">
+                                {tableColumns.map((col, index) => {
+                                  const type = getColumnType(col);
+                                  return (
+                                    <td 
+                                      key={col} 
+                                      className={`px-4 py-3 text-slate-600 whitespace-nowrap ${index === 0 ? 'sticky left-0 bg-white group-hover:bg-blue-50/50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] font-medium text-slate-900' : ''}`}
+                                    >
+                                      {col === 'Status' ? <StatusBadge status={row[col]} /> :
+                                       type === 'date' ? formatDisplayDate(row[col]) :
+                                       type === 'number' ? formatNumber(row[col]) :
+                                       row[col]
+                                      }
+                                    </td>
+                                  );
+                                })}
+                                <td className="px-4 py-3 sticky right-0 bg-white group-hover:bg-blue-50/50 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.05)] text-center">
+                                  <button
+                                    onClick={() => initiateEdit(row)}
+                                    className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-md transition"
+                                    title="Edit Details"
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      
+                      <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200 bg-slate-50">
+                        <span className="text-sm text-slate-500">
+                          Showing <span className="font-medium">{(currentPage - 1) * rowsPerPage + 1}</span> to <span className="font-medium">{Math.min(currentPage * rowsPerPage, sortedData.length)}</span> of <span className="font-medium">{sortedData.length}</span> results
+                        </span>
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                            disabled={currentPage === 1}
+                            className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed text-slate-600"
+                          >
+                            <ChevronLeft className="h-5 w-5" />
+                          </button>
+                          <button 
+                            onClick={() => setCurrentPage(p => Math.min(pageCount, p + 1))}
+                            disabled={currentPage === pageCount}
+                            className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed text-slate-600"
+                          >
+                            <ChevronRight className="h-5 w-5" />
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-24 text-slate-400">
+                      <FileSpreadsheet className="h-16 w-16 mb-4 opacity-50" />
+                      <p className="text-lg font-medium text-slate-600">No data available</p>
+                      <p className="text-sm">Upload an Excel file to get started</p>
+                    </div>
+                  )}
+                </div>
+              </main>
+
+              {isEditing && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                  <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+                    <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                      <h2 className="text-lg font-bold text-slate-800">
+                        {currentId ? 'Edit Project Record' : 'Create New Project'}
+                      </h2>
+                      <button onClick={closeForm} className="text-slate-400 hover:text-slate-600">
+                        <X className="h-6 w-6" />
+                      </button>
+                    </div>
+
+                    <div className="flex border-b border-slate-200 px-6 pt-2 bg-white sticky top-0 overflow-x-auto custom-scrollbar">
+                      {Object.keys(dynamicFieldGroups).map(group => (
+                        <button
+                          key={group}
+                          onClick={() => setActiveTab(group)}
+                          className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                            activeTab === group 
+                              ? 'border-blue-600 text-blue-600' 
+                              : 'border-transparent text-slate-500 hover:text-slate-700'
+                          }`}
+                        >
+                          {group}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-slate-50/50">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                        {dynamicFieldGroups[activeTab]?.map(col => {
+                          const type = getColumnType(col);
+                          return (
+                            <div key={col} className="flex flex-col gap-1">
+                              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider truncate" title={col}>{col}</label>
+                              {col === 'Status' ? (
+                                <select
+                                  value={formData[col] || ''}
+                                  onChange={e => handleInputChange(col, e.target.value)}
+                                  className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 text-sm bg-white"
+                                >
+                                  <option value="">Select Status</option>
+                                  {STATUS_OPTIONS.map(opt => (
+                                    <option key={opt} value={opt}>{opt}</option>
+                                  ))}
+                                </select>
+                              ) : type === 'date' ? (
+                                <input
+                                  type="date"
+                                  value={formData[col] || ''}
+                                  onChange={e => handleInputChange(col, e.target.value)}
+                                  className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 text-sm"
+                                />
+                              ) : (
+                                <input
+                                  type={type === 'number' ? "number" : "text"}
+                                  value={formData[col] || ''}
+                                  onChange={e => handleInputChange(col, e.target.value)}
+                                  readOnly={col === 'Payment Balance' || col === 'Aging'}
+                                  className={`px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 text-sm ${
+                                    (col === 'Payment Balance' || col === 'Aging') ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white'
+                                  }`}
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="p-6 border-t border-slate-200 bg-white flex justify-end gap-3">
+                      <button onClick={closeForm} className="px-5 py-2.5 text-slate-600 font-medium hover:bg-slate-100 rounded-lg transition text-sm">Cancel</button>
+                      <button onClick={handleSave} className="px-5 py-2.5 bg-blue-600 text-white font-medium hover:bg-blue-700 rounded-lg shadow-lg shadow-blue-600/20 transition text-sm flex items-center">
+                        <CheckCircle className="mr-2 h-4 w-4" />
+                        Save Changes
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+          );
+        }
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(React.createElement(ExcelTrackerManager));
+    </script>
+</body>
+</html>
