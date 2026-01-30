@@ -1,889 +1,687 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Master Job Tracker Pro</title>
-    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
-    <style>
-        :root {
-            --primary: #2563eb;
-            --primary-dark: #1e40af;
-            --success: #16a34a;
-            --danger: #dc2626;
-            --warning: #ca8a04;
-            --bg: #f3f4f6;
-            --surface: #ffffff;
-            --text: #1f2937;
-            --border: #e5e7eb;
-        }
+import React, { useState, useMemo, useEffect } from 'react';
+// import * as XLSX from 'xlsx'; // Loaded dynamically
+import { 
+  Upload, Plus, Edit, X, Search, Download, 
+  LayoutDashboard, DollarSign, Calendar, FileSpreadsheet, 
+  ChevronLeft, ChevronRight, Layers, CheckCircle,
+  ArrowUpDown, ArrowUp, ArrowDown, Wallet, ClipboardList 
+} from 'lucide-react';
 
-        body {
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            padding: 20px;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.5;
-        }
+// --- Configuration & Types ---
 
-        /* --- Layout & Container --- */
-        .container {
-            background: var(--surface);
-            padding: 25px;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            max-width: 1400px;
-            margin: 0 auto;
-        }
+// Define strict column types based on user specification
+const COLUMN_DEFS = {
+  'Sr No': 'general',
+  'Client': 'general',
+  'Location': 'general',
+  'Callout': 'date',
+  'Status': 'general',
+  'State': 'general',
+  'Address': 'general',
+  'Contact Person': 'general',
+  'Contact No.': 'general',
+  'Sign Type': 'general',
+  'Survey By': 'general',
+  'Survey Date': 'date',
+  'Survey Shared': 'general', // Explicitly General
+  'Signage Size': 'general',
+  'Artwork Sent': 'date',
+  'Artwork Approval': 'date',
+  'Cost Shared': 'date',
+  'Cost Approval': 'date',
+  'PI No.': 'general',
+  'PI Date': 'date',
+  'PO Received': 'date',
+  'PO Number': 'general',
+  'JC No': 'general',
+  'JC Date': 'date',
+  'Production Start': 'date',
+  'Production Finish': 'date',
+  'Dispatch Date': 'date',
+  'At Site': 'date',
+  'Work Start': 'date',
+  'Work Complete': 'date',
+  'Contractor': 'general',
+  'Completion Certificate': 'general',
+  'Photo': 'general',
+  'Warranty': 'general',
+  'Invoice No': 'general',
+  'Invoice Date': 'date',
+  'Invoice Amt': 'number',
+  'Invoice Submitted': 'date',
+  'Payment Terms': 'general',
+  'Due Date': 'date',
+  'Payment received': 'number',
+  'Payment Balance': 'number',
+  'AWB NO': 'general',
+  'Aging': 'number'
+};
 
-        .header-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 25px;
-            border-bottom: 2px solid var(--border);
-            padding-bottom: 15px;
-        }
+// Form Group Organization
+const FIELD_GROUPS_TEMPLATE = {
+  'Client Info': ['Sr No', 'Client', 'Location', 'Callout', 'Status', 'State', 'Address', 'Contact Person', 'Contact No.'],
+  'Survey & Design': ['Sign Type', 'Survey By', 'Survey Date', 'Survey Shared', 'Signage Size', 'Artwork Sent', 'Artwork Approval'],
+  'Approvals & PO': ['Cost Shared', 'Cost Approval', 'PI No.', 'PI Date', 'PO Received', 'PO Number'],
+  'Production & Site': ['JC No', 'JC Date', 'Production Start', 'Production Finish', 'Dispatch Date', 'At Site', 'Work Start', 'Work Complete', 'Contractor', 'Completion Certificate', 'Photo', 'Warranty', 'AWB NO'],
+  'Finance': ['Invoice No', 'Invoice Date', 'Invoice Amt', 'Invoice Submitted', 'Payment Terms', 'Due Date', 'Payment received', 'Payment Balance', 'Aging']
+};
 
-        h1 { margin: 0; color: var(--primary-dark); font-size: 24px; display: flex; align-items: center; gap: 10px; }
+const KNOWN_COLUMNS = Object.keys(COLUMN_DEFS);
 
-        /* --- Buttons & Inputs --- */
-        .btn {
-            padding: 8px 16px;
-            margin: 0 4px;
-            cursor: pointer;
-            border: none;
-            border-radius: 6px;
-            font-weight: 600;
-            font-size: 13px;
-            transition: all 0.2s;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .btn:hover { filter: brightness(95%); transform: translateY(-1px); }
-        .btn:active { transform: translateY(0); }
-        
-        .btn-primary { background: var(--primary); color: white; }
-        .btn-success { background: var(--success); color: white; }
-        .btn-danger { background: var(--danger); color: white; }
-        .btn-secondary { background: #64748b; color: white; }
-        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+const STATUS_OPTIONS = [
+  "Payment Awaited",
+  "Invoice to be done",
+  "WIP",
+  "Material at Site",
+  "Material at Site-Hold",
+  "In Transit",
+  "Under Production",
+  "PO Awaited",
+  "Cost Approval awaited",
+  "Artwork Approval Awaited",
+  "Survey to be done",
+  "Photo Awaited",
+  "Paid"
+];
 
-        .controls-bar {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            align-items: center;
-            margin-bottom: 20px;
-            background: #f8fafc;
-            padding: 15px;
-            border-radius: 8px;
-            border: 1px solid var(--border);
-        }
+// --- Helper Functions ---
 
-        input, select, textarea {
-            padding: 10px;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            font-size: 14px;
-        }
-        input:focus, select:focus, textarea:focus {
-            outline: 2px solid var(--primary);
-            border-color: transparent;
-        }
+const toTitleCase = (str) => {
+  if (!str || typeof str !== 'string') return str;
+  if (STATUS_OPTIONS.includes(str)) return str;
+  return str.toLowerCase().replace(/\b\w/g, s => s.toUpperCase());
+};
 
-        /* --- Table Styling --- */
-        .table-wrapper {
-            overflow-x: auto;
-            border-radius: 8px;
-            border: 1px solid var(--border);
-        }
-        table { width: 100%; border-collapse: collapse; min-width: 1200px; }
-        
-        th {
-            background: #f1f5f9;
-            color: var(--text);
-            font-weight: 700;
-            text-align: left;
-            padding: 12px;
-            border-bottom: 2px solid var(--border);
-            position: sticky;
-            top: 0;
-            cursor: pointer;
-            user-select: none;
-            white-space: nowrap;
-        }
-        th:hover { background: #e2e8f0; }
-        th::after { content: ' ↕'; font-size: 10px; color: #94a3b8; }
-        
-        td {
-            padding: 12px;
-            border-bottom: 1px solid var(--border);
-            font-size: 13px;
-            vertical-align: top;
-        }
-        tr:hover td { background: #f8fafc; }
+// Check column type (case-insensitive for robustness)
+const getColumnType = (colName) => {
+  if (!colName) return 'general';
+  const cleanName = colName.trim();
+  // Try exact match first
+  if (COLUMN_DEFS[cleanName]) return COLUMN_DEFS[cleanName];
+  // Try case-insensitive match
+  const match = Object.keys(COLUMN_DEFS).find(k => k.toLowerCase() === cleanName.toLowerCase());
+  return match ? COLUMN_DEFS[match] : 'general';
+};
 
-        /* --- Badges & Status --- */
-        .badge {
-            padding: 4px 8px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 700;
-            display: inline-block;
+const parseExcelDate = (value) => {
+  if (!value) return '';
+  // Excel Serial Date
+  if (typeof value === 'number' && value > 20000) {
+    const date = new Date(Math.round((value - 25569) * 86400 * 1000));
+    return date.toISOString().split('T')[0];
+  }
+  // String Date
+  if (typeof value === 'string') {
+    if (value.includes('/')) {
+      const parts = value.split('/');
+      if (parts.length === 3) {
+        let year = parts[2];
+        if (year.length === 2) year = '20' + year;
+        return `${year}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+      }
+    }
+    const date = new Date(value);
+    if (!isNaN(date.getTime())) return date.toISOString().split('T')[0];
+  }
+  return value;
+};
+
+const formatDisplayDate = (isoString) => {
+  if (!isoString) return '-';
+  try {
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return isoString;
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = String(date.getFullYear()).slice(-2);
+    return `${day}/${month}/${year}`;
+  } catch (e) {
+    return isoString;
+  }
+};
+
+const formatNumber = (val, isCurrency = false) => {
+  if (val === '' || val === null || val === undefined) return '-';
+  const num = parseFloat(val);
+  if (isNaN(num)) return val;
+  return num.toLocaleString('en-IN', { 
+    maximumFractionDigits: 2,
+    style: isCurrency ? 'currency' : 'decimal',
+    currency: 'INR'
+  });
+};
+
+const StatusBadge = ({ status }) => {
+  if (!status) return <span className="text-gray-400">-</span>;
+  const s = String(status).toLowerCase();
+  let color = "bg-gray-100 text-gray-800";
+  
+  if (s === 'paid' || s.includes('complete') || s === 'done') {
+    color = "bg-green-100 text-green-800 border border-green-200";
+  } else if (s.includes('hold') || s.includes('cancel')) {
+    color = "bg-red-100 text-red-800 border border-red-200";
+  } else if (s.includes('invoice') || s.includes('survey') || s.includes('to be done')) {
+    color = "bg-blue-100 text-blue-800 border border-blue-200";
+  } else if (s.includes('awaited') || s.includes('wip') || s.includes('production') || s.includes('transit')) {
+    color = "bg-yellow-100 text-yellow-800 border border-yellow-200";
+  } else if (s.includes('material at site')) {
+    color = "bg-purple-100 text-purple-800 border border-purple-200";
+  }
+  
+  return (
+    <span className={`px-2 py-1 rounded-full text-xs font-medium ${color} whitespace-nowrap`}>
+      {status}
+    </span>
+  );
+};
+
+export default function ExcelTrackerManager() {
+  const [data, setData] = useState([]);
+  const [tableColumns, setTableColumns] = useState(KNOWN_COLUMNS); 
+  const [isEditing, setIsEditing] = useState(false);
+  const [currentId, setCurrentId] = useState(null);
+  const [formData, setFormData] = useState({});
+  const [searchTerm, setSearchTerm] = useState('');
+  const [fileName, setFileName] = useState('Project_Tracker.xlsx');
+  const [activeTab, setActiveTab] = useState('Client Info');
+  const [libLoaded, setLibLoaded] = useState(false);
+  
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+  const [currentPage, setCurrentPage] = useState(1);
+  const rowsPerPage = 15;
+
+  const dynamicFieldGroups = useMemo(() => {
+    const groups = { ...FIELD_GROUPS_TEMPLATE };
+    const unknownColumns = tableColumns.filter(col => !KNOWN_COLUMNS.includes(col));
+    if (unknownColumns.length > 0) {
+      groups['Other Details'] = unknownColumns;
+    }
+    return groups;
+  }, [tableColumns]);
+
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    script.async = true;
+    script.onload = () => setLibLoaded(true);
+    document.body.appendChild(script);
+    return () => { document.body.removeChild(script); };
+  }, []);
+
+  const processData = (rawData) => {
+    return rawData.map((row) => {
+      const processedRow = {
+        ...row,
+        _id: row._id || Math.random().toString(36).substr(2, 9),
+      };
+
+      // Process columns based on defined type
+      Object.keys(processedRow).forEach(key => {
+        const type = getColumnType(key);
+        if (type === 'date' && processedRow[key]) {
+          processedRow[key] = parseExcelDate(processedRow[key]);
         }
-        .badge-green { background: #dcfce7; color: #166534; }
-        .badge-orange { background: #ffedd5; color: #9a3412; }
-        .badge-red { background: #fee2e2; color: #991b1b; }
+      });
 
-        /* --- Modal System --- */
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            background: rgba(0,0,0,0.6);
-            backdrop-filter: blur(2px);
-            z-index: 1000;
-            opacity: 0;
-            transition: opacity 0.2s;
+      // Normalize Status
+      if (processedRow['Status']) {
+        const rawStatus = processedRow['Status'];
+        const match = STATUS_OPTIONS.find(opt => opt.toLowerCase() === rawStatus.toLowerCase());
+        if (match) {
+          processedRow['Status'] = match;
+        } else {
+          processedRow['Status'] = toTitleCase(rawStatus);
         }
-        .modal.active {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            opacity: 1;
+      }
+
+      return processedRow;
+    });
+  };
+
+  const handleFileUpload = async (e) => {
+    if (!libLoaded) {
+      alert("Excel library is still loading...");
+      return;
+    }
+
+    const file = e.target.files[0];
+    if (!file) return;
+    setFileName(file.name);
+    
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const XLSX = window.XLSX;
+      const workbook = XLSX.read(arrayBuffer);
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      
+      const headerRow = XLSX.utils.sheet_to_json(worksheet, { header: 1 })[0];
+      if (headerRow && Array.isArray(headerRow)) {
+        setTableColumns(headerRow);
+      }
+
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+      setData(processData(jsonData));
+    } catch (error) {
+      alert('Error reading file: ' + error.message);
+    }
+  };
+
+  const requestSort = (key) => {
+    let direction = 'asc';
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const handleSave = () => {
+    const processedForm = { ...formData };
+    if (currentId) {
+      setData(data.map(row => row._id === currentId ? processedForm : row));
+    } else {
+      setData([...data, { ...processedForm, _id: Math.random().toString(36).substr(2, 9) }]);
+    }
+    closeForm();
+  };
+
+  const closeForm = () => {
+    setIsEditing(false);
+    setFormData({});
+    setCurrentId(null);
+  };
+
+  const initiateEdit = (row) => {
+    setFormData({ ...row });
+    setCurrentId(row._id);
+    setIsEditing(true);
+    setActiveTab('Client Info');
+  };
+
+  const initiateNew = () => {
+    const empty = {};
+    tableColumns.forEach(c => empty[c] = '');
+    empty['Sr No'] = data.length + 1;
+    setFormData(empty);
+    setCurrentId(null);
+    setIsEditing(true);
+    setActiveTab('Client Info');
+  };
+
+  const handleExport = () => {
+    if (!libLoaded) return;
+    const cleanData = data.map(({ _id, ...rest }) => rest);
+    const XLSX = window.XLSX;
+    const ws = XLSX.utils.json_to_sheet(cleanData, { header: tableColumns });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Tracker");
+    XLSX.writeFile(wb, `Updated_${fileName}`);
+  };
+
+  // --- Auto-Calculation Logic ---
+  useEffect(() => {
+    if (isEditing) {
+      const amt = parseFloat(formData['Invoice Amt']) || 0;
+      const rcv = parseFloat(formData['Payment received']) || 0;
+      const balance = amt - rcv;
+      
+      let aging = 0;
+      if (balance > 0 && formData['Invoice Date']) {
+        const invDate = new Date(formData['Invoice Date']);
+        const today = new Date();
+        const diffTime = Math.abs(today - invDate);
+        aging = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+      }
+
+      setFormData(prev => {
+        // Only update if calculations are different to avoid unnecessary renders
+        if (prev['Payment Balance'] === balance && prev['Aging'] === (balance <= 0 ? 0 : aging)) {
+          return prev;
         }
-        .modal-content {
-            background: white;
-            border-radius: 12px;
-            width: 90%;
-            max-width: 900px;
-            max-height: 90vh;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
-            animation: slideIn 0.3s ease-out;
-        }
-        @keyframes slideIn {
-            from { transform: translateY(20px); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
-        }
-        
-        .modal-header {
-            padding: 20px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .modal-body { padding: 20px; overflow-y: auto; }
-        .modal-footer {
-            padding: 20px;
-            border-top: 1px solid var(--border);
-            text-align: right;
-            background: #f9fafb;
-            border-radius: 0 0 12px 12px;
-        }
-
-        /* --- Forms --- */
-        .form-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-            gap: 20px;
-        }
-        .product-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-            gap: 10px;
-            padding: 15px;
-            background: #f8fafc;
-            border-radius: 8px;
-            border: 1px solid var(--border);
-        }
-        .checkbox-label {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 13px;
-            cursor: pointer;
-        }
-        .full-width { grid-column: 1 / -1; }
-
-        /* --- Toast Notifications --- */
-        #toast-container {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            z-index: 2000;
-        }
-        .toast {
-            background: #333;
-            color: white;
-            padding: 12px 24px;
-            border-radius: 8px;
-            margin-top: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            animation: slideInRight 0.3s;
-        }
-        @keyframes slideInRight {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
-
-        /* --- Confirm Modal Specifics --- */
-        .confirm-modal-content { max-width: 400px; text-align: center; }
-        .confirm-icon { font-size: 48px; margin-bottom: 10px; display: block; }
-    </style>
-</head>
-<body>
-
-    <div class="container">
-        <div class="header-row">
-            <h1>📋 Master Job Tracker <span style="font-size: 12px; color: #666; font-weight: normal; margin-top: 5px;">Pro Edition</span></h1>
-            <div>
-                <button class="btn btn-secondary" onclick="openCustomerModal()">👥 Manage Customers</button>
-                <button class="btn btn-secondary" onclick="backupData()">💾 Backup Data</button>
-                <label class="btn btn-secondary" style="margin: 0 4px;">
-                    📂 Restore
-                    <input type="file" id="restoreInput" accept=".json" style="display: none;" onchange="restoreData(this)">
-                </label>
-            </div>
-        </div>
-        
-        <div class="controls-bar">
-            <input type="text" id="searchInput" placeholder="🔍 Search JC, Customer, or Product..." style="width: 300px;">
-            <select id="filterStatus" style="width: 150px;">
-                <option value="">All Status</option>
-                <option value="pending">⏳ Pending</option>
-                <option value="completed">✅ Completed</option>
-            </select>
-            <div style="flex-grow: 1;"></div>
-            <button class="btn btn-primary" onclick="openJobModal()">➕ Add New Job</button>
-            <button class="btn btn-success" onclick="exportToExcel()">📥 Export Excel</button>
-            <button class="btn btn-danger" onclick="confirmClearAll()">🗑️ Clear All</button>
-        </div>
-        
-        <div class="table-wrapper">
-            <table id="mainTable">
-                <thead>
-                    <tr>
-                        <th onclick="sortTable('jcNo')">JC No</th>
-                        <th onclick="sortTable('customerName')">Customer</th>
-                        <th onclick="sortTable('jcDate')">JC Date</th>
-                        <th onclick="sortTable('pendingDays')">Status</th>
-                        <th>State</th>
-                        <th>Shipping</th>
-                        <th>Address</th>
-                        <th>Product Details</th>
-                        <th>Size</th>
-                        <th>Frame</th>
-                        <th>R-ACP</th>
-                        <th>R-Acrylic</th>
-                        <th>R-Back</th>
-                        <th>Letter</th>
-                        <th>Paint</th>
-                        <th>Furn.</th>
-                        <th>Layout</th>
-                        <th>Print</th>
-                        <th>Alu</th>
-                        <th>Assem.</th>
-                        <th>Pack</th>
-                        <th>Store</th>
-                        <th onclick="sortTable('actualDispatchDate')">Dispatch</th>
-                        <th>Delivery</th>
-                        <th>Remark</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="jobTableBody"></tbody>
-            </table>
-        </div>
-    </div>
-
-    <div id="toast-container"></div>
-
-    <div id="jobModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 id="modalTitle">Add New Job</h2>
-                <button class="btn-outline" onclick="closeModal('jobModal')" style="border:none; font-size: 20px;">✕</button>
-            </div>
-            
-            <div class="modal-body">
-                <input type="hidden" id="editIndex">
-                <div class="form-grid">
-                    <div>
-                        <label>JC No <span style="color:red">*</span></label>
-                        <input type="text" id="jcNo" required placeholder="Unique Job Code">
-                    </div>
-                    <div>
-                        <label>Customer <span style="color:red">*</span></label>
-                        <select id="customerName" required>
-                            <option value="">Select Customer...</option>
-                            </select>
-                    </div>
-                    <div>
-                        <label>JC Date <span style="color:red">*</span></label>
-                        <input type="date" id="jcDate" required>
-                    </div>
-                    <div>
-                        <label>State Code</label>
-                        <input type="text" id="stateCode">
-                    </div>
-                    <div>
-                        <label>Shipping Location</label>
-                        <input type="text" id="shippingLocation">
-                    </div>
-                    <div>
-                        <label>Address</label>
-                        <input type="text" id="address">
-                    </div>
-
-                    <div class="full-width">
-                        <label style="margin-bottom: 8px;">Product Selection</label>
-                        <div class="product-grid">
-                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Backlit Signs"> Backlit Signs</label>
-                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Nonlit Signs"> Nonlit Signs</label>
-                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="ACP/ACM Signs"> ACP/ACM Signs</label>
-                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="3D Letters"> 3D Letters</label>
-                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Lollypop Sign"> Lollypop Sign</label>
-                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Pylons/Totems"> Pylons/Totems</label>
-                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Spreadors"> Spreadors</label>
-                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Fabric Signs"> Fabric Signs</label>
-                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Printed Vinyl"> Printed Vinyl</label>
-                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Glass Film"> Glass Film</label>
-                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Internal Signs"> Internal Signs</label>
-                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Ext Campus"> Ext Campus</label>
-                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Furniture"> Furniture</label>
-                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Decor Lights"> Decor Lights</label>
-                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Other"> Other</label>
-                        </div>
-                        <input type="text" id="productDetails" placeholder="Additional product notes..." style="margin-top: 10px;">
-                    </div>
-
-                    <div><label>Size</label><input type="text" id="size"></div>
-                    <div><label>Frame</label><select id="frame"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
-                    <div><label>Router ACP</label><select id="routerACP"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
-                    <div><label>Router Acrylic</label><select id="routerAcrylic"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
-                    <div><label>Router Back</label><select id="routerBackCover"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
-                    <div><label>Letter Making</label><select id="letterMaking"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
-                    <div><label>Painting</label><select id="painting"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
-                    <div><label>Furniture</label><select id="furniture"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
-                    <div><label>Layout</label><select id="layout"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
-                    <div><label>Print/Plot</label><select id="printPlot"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
-                    <div><label>Alu</label><select id="alu"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
-                    <div><label>Assembly</label><select id="assembly"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
-                    <div><label>Packing</label><select id="packing"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
-                    <div><label>Stores</label><select id="stores"><option value="">-</option><option>Yes</option><option>No</option></select></div>
-
-                    <div>
-                        <label>Actual Dispatch</label>
-                        <input type="date" id="actualDispatchDate">
-                    </div>
-                    <div>
-                        <label>Delivery At</label>
-                        <input type="text" id="deliveryAt">
-                    </div>
-                    <div class="full-width">
-                        <label>Remarks</label>
-                        <textarea id="remark" rows="2"></textarea>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('jobModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="saveJob()">💾 Save Job</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="customerModal" class="modal">
-        <div class="modal-content" style="max-width: 500px;">
-            <div class="modal-header">
-                <h2>👥 Manage Customers</h2>
-                <button class="btn-outline" onclick="closeModal('customerModal')" style="border:none;">✕</button>
-            </div>
-            <div class="modal-body">
-                <p style="font-size: 13px; color: #666; margin-bottom: 10px;">Enter one customer name per line:</p>
-                <textarea id="customerListInput" rows="15" style="width: 100%; font-family: monospace;"></textarea>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('customerModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="saveCustomers()">Update List</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="confirmModal" class="modal">
-        <div class="modal-content confirm-modal-content">
-            <div class="modal-body">
-                <span class="confirm-icon">⚠️</span>
-                <h3 id="confirmTitle">Are you sure?</h3>
-                <p id="confirmMessage" style="color: #666;">This action cannot be undone.</p>
-                <div style="margin-top: 20px; display: flex; justify-content: center; gap: 10px;">
-                    <button class="btn btn-secondary" onclick="closeModal('confirmModal')">Cancel</button>
-                    <button id="confirmActionBtn" class="btn btn-danger">Yes, Delete</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        // --- STATE MANAGEMENT ---
-        let jobs = [];
-        let customers = [
-            "ADITYA BIRLA FASHION AND RETAIL LIMITED",
-            "Heritage Foods Limited",
-            "BlackBerrys",
-            "THIRD WAVE COFFEE",
-            "Milky Mist"
-        ];
-        let sortConfig = { key: null, direction: 'asc' };
-
-        // --- INITIALIZATION ---
-        window.onload = function() {
-            loadData();
-            loadCustomers();
-            populateCustomerSelect();
-            renderTable();
-            
-            // Event Listeners
-            document.getElementById('searchInput').addEventListener('input', renderTable);
-            document.getElementById('filterStatus').addEventListener('change', renderTable);
+        return {
+          ...prev,
+          'Payment Balance': balance,
+          'Aging': balance <= 0 ? 0 : aging
         };
+      });
+    }
+  }, [formData['Invoice Amt'], formData['Payment received'], formData['Invoice Date'], isEditing]);
 
-        // --- DATA HANDLING (LOCAL STORAGE & BACKUP) ---
-        function loadData() {
-            const saved = localStorage.getItem('masterTrackerPro_Jobs');
-            if (saved) jobs = JSON.parse(saved);
+  // Handle Input Change with Special Logic for Status
+  const handleInputChange = (col, value) => {
+    const updates = { [col]: value };
+
+    // Dynamic Logic: If Status changes to 'Paid'
+    if (col === 'Status' && value === 'Paid') {
+      const amt = parseFloat(formData['Invoice Amt']) || 0;
+      updates['Payment received'] = amt; // Auto-fill received amount
+      updates['Payment Balance'] = 0;    // Clear balance
+    }
+
+    setFormData(prev => ({ ...prev, ...updates }));
+  };
+
+
+  const sortedData = useMemo(() => {
+    const filtered = data.filter(row => 
+      Object.values(row).some(val => 
+        String(val).toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    );
+
+    if (sortConfig.key) {
+      filtered.sort((a, b) => {
+        const aVal = a[sortConfig.key] || '';
+        const bVal = b[sortConfig.key] || '';
+        const type = getColumnType(sortConfig.key);
+
+        if (type === 'number') {
+          return sortConfig.direction === 'asc' 
+            ? parseFloat(aVal || 0) - parseFloat(bVal || 0)
+            : parseFloat(bVal || 0) - parseFloat(aVal || 0);
         }
 
-        function saveData() {
-            try {
-                localStorage.setItem('masterTrackerPro_Jobs', JSON.stringify(jobs));
-            } catch (e) {
-                showToast('❌ Storage Error: ' + e.message, 'error');
-            }
+        if (type === 'date') {
+           return sortConfig.direction === 'asc'
+            ? String(aVal).localeCompare(String(bVal))
+            : String(bVal).localeCompare(String(aVal));
         }
 
-        function loadCustomers() {
-            const saved = localStorage.getItem('masterTrackerPro_Customers');
-            if (saved) customers = JSON.parse(saved);
-        }
+        return sortConfig.direction === 'asc'
+          ? String(aVal).localeCompare(String(bVal))
+          : String(bVal).localeCompare(String(aVal));
+      });
+    }
 
-        function backupData() {
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ jobs, customers }));
-            const downloadAnchorNode = document.createElement('a');
-            downloadAnchorNode.setAttribute("href", dataStr);
-            downloadAnchorNode.setAttribute("download", "Tracker_Backup_" + new Date().toISOString().slice(0,10) + ".json");
-            document.body.appendChild(downloadAnchorNode);
-            downloadAnchorNode.click();
-            downloadAnchorNode.remove();
-            showToast('✅ Backup downloaded!');
-        }
+    return filtered;
+  }, [data, searchTerm, sortConfig]);
 
-        function restoreData(input) {
-            const file = input.files[0];
-            if (!file) return;
-            
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                try {
-                    const data = JSON.parse(e.target.result);
-                    if (data.jobs && Array.isArray(data.jobs)) {
-                        jobs = data.jobs;
-                        if (data.customers) customers = data.customers;
-                        
-                        saveData();
-                        localStorage.setItem('masterTrackerPro_Customers', JSON.stringify(customers));
-                        
-                        renderTable();
-                        populateCustomerSelect();
-                        showToast('✅ Data restored successfully!');
-                    } else {
-                        throw new Error("Invalid file format");
-                    }
-                } catch (err) {
-                    showToast('❌ Error restoring file: ' + err.message, 'error');
-                }
-            };
-            reader.readAsText(file);
-            input.value = ''; // Reset
-        }
+  const pageCount = Math.ceil(sortedData.length / rowsPerPage);
+  const paginatedData = sortedData.slice(
+    (currentPage - 1) * rowsPerPage,
+    currentPage * rowsPerPage
+  );
 
-        // --- CORE LOGIC ---
-        function getPendingDays(jcDate, dispatchDate) {
-            const start = new Date(jcDate);
-            const end = dispatchDate ? new Date(dispatchDate) : new Date();
-            const diff = Math.abs(end - start);
-            return Math.ceil(diff / (1000 * 60 * 60 * 24));
-        }
+  // --- Dashboard Stats Calculation ---
+  const stats = useMemo(() => {
+    const totalProjects = data.length;
+    
+    // Sum Invoice Amt
+    const totalRevenue = data.reduce((sum, row) => sum + (parseFloat(row['Invoice Amt']) || 0), 0);
+    
+    // Sum Payment Received (New Requirement)
+    const totalReceived = data.reduce((sum, row) => sum + (parseFloat(row['Payment received']) || 0), 0);
+    
+    // Sum Outstanding
+    const outstanding = data.reduce((sum, row) => sum + (parseFloat(row['Payment Balance']) || 0), 0);
 
-        function getFilteredAndSortedJobs() {
-            const search = document.getElementById('searchInput').value.toLowerCase();
-            const status = document.getElementById('filterStatus').value;
+    // Sum Invoice Amt where Status is 'Invoice to be done' (New Requirement)
+    const pipelineValue = data
+      .filter(row => (row['Status'] || '').toLowerCase() === 'invoice to be done')
+      .reduce((sum, row) => sum + (parseFloat(row['Invoice Amt']) || 0), 0);
 
-            let filtered = jobs.filter(job => {
-                const term = search;
-                const inSearch = 
-                    job.jcNo.toLowerCase().includes(term) ||
-                    job.customerName.toLowerCase().includes(term) ||
-                    (job.product && job.product.toLowerCase().includes(term));
-                
-                const isComplete = !!job.actualDispatchDate;
-                const inStatus = status === '' || 
-                    (status === 'completed' && isComplete) || 
-                    (status === 'pending' && !isComplete);
+    return { totalProjects, totalRevenue, totalReceived, outstanding, pipelineValue };
+  }, [data]);
 
-                return inSearch && inStatus;
-            });
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
+      
+      <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm sticky top-0 z-20">
+        <div className="flex items-center gap-2">
+          <div className="bg-blue-600 p-2 rounded-lg">
+            <LayoutDashboard className="text-white h-5 w-5" />
+          </div>
+          <h1 className="text-xl font-bold text-slate-800">ProTracker <span className="text-blue-600">360</span></h1>
+        </div>
+        <div className="flex gap-3">
+           <label className={`flex items-center px-4 py-2 bg-slate-100 text-slate-700 rounded-lg cursor-pointer hover:bg-slate-200 transition text-sm font-medium border border-slate-300 ${!libLoaded ? 'opacity-50 cursor-not-allowed' : ''}`}>
+            <Upload className="mr-2 h-4 w-4" />
+            Import Excel
+            <input type="file" accept=".xlsx,.xls" onChange={handleFileUpload} className="hidden" disabled={!libLoaded} />
+          </label>
+          <button onClick={handleExport} disabled={data.length === 0 || !libLoaded} className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+            <Download className="mr-2 h-4 w-4" />
+            Export
+          </button>
+        </div>
+      </header>
 
-            if (sortConfig.key) {
-                filtered.sort((a, b) => {
-                    let va = a[sortConfig.key] || '';
-                    let vb = b[sortConfig.key] || '';
-                    
-                    // Special sort for Pending Days (calculated)
-                    if (sortConfig.key === 'pendingDays') {
-                        va = getPendingDays(a.jcDate, a.actualDispatchDate);
-                        vb = getPendingDays(b.jcDate, b.actualDispatchDate);
-                    }
-
-                    if (va < vb) return sortConfig.direction === 'asc' ? -1 : 1;
-                    if (va > vb) return sortConfig.direction === 'asc' ? 1 : -1;
-                    return 0;
-                });
-            }
-
-            return filtered;
-        }
-
-        function renderTable() {
-            const tbody = document.getElementById('jobTableBody');
-            tbody.innerHTML = '';
-            
-            const displayJobs = getFilteredAndSortedJobs();
-
-            if (displayJobs.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="26" style="text-align:center; padding: 40px; color: #888;">
-                    <div style="font-size: 40px; margin-bottom: 10px;">📭</div>
-                    No jobs found. Click "Add New Job" to start.
-                </td></tr>`;
-                return;
-            }
-
-            displayJobs.forEach(job => {
-                const originalIndex = jobs.indexOf(job); // Key for actions
-                const days = getPendingDays(job.jcDate, job.actualDispatchDate);
-                const isDone = !!job.actualDispatchDate;
-                
-                // Status Badge Logic
-                let badgeClass = 'badge-orange';
-                let statusText = `${days} Days`;
-                if (isDone) {
-                    badgeClass = 'badge-green';
-                    statusText = 'Completed';
-                } else if (days > 15) {
-                    badgeClass = 'badge-red'; // Late warning
-                }
-
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td style="font-weight:bold; color:var(--primary)">${job.jcNo}</td>
-                    <td>${job.customerName}</td>
-                    <td>${job.jcDate}</td>
-                    <td><span class="badge ${badgeClass}">${statusText}</span></td>
-                    <td>${job.stateCode || '-'}</td>
-                    <td>${job.shippingLocation || '-'}</td>
-                    <td>${job.address || '-'}</td>
-                    <td style="max-width: 200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${job.product}">${job.product || '-'}</td>
-                    <td>${job.size || '-'}</td>
-                    <td>${job.frame || '-'}</td>
-                    <td>${job.routerACP || '-'}</td>
-                    <td>${job.routerAcrylic || '-'}</td>
-                    <td>${job.routerBackCover || '-'}</td>
-                    <td>${job.letterMaking || '-'}</td>
-                    <td>${job.painting || '-'}</td>
-                    <td>${job.furniture || '-'}</td>
-                    <td>${job.layout || '-'}</td>
-                    <td>${job.printPlot || '-'}</td>
-                    <td>${job.alu || '-'}</td>
-                    <td>${job.assembly || '-'}</td>
-                    <td>${job.packing || '-'}</td>
-                    <td>${job.stores || '-'}</td>
-                    <td>${job.actualDispatchDate || '-'}</td>
-                    <td>${job.deliveryAt || '-'}</td>
-                    <td>${job.remark || '-'}</td>
-                    <td>
-                        <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="editJob(${originalIndex})">✏️</button>
-                        <button class="btn btn-danger" style="padding:4px 8px; font-size:11px;" onclick="confirmDelete(${originalIndex})">🗑️</button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
-
-        // --- SORTING ---
-        function sortTable(key) {
-            if (sortConfig.key === key) {
-                sortConfig.direction = sortConfig.direction === 'asc' ? 'desc' : 'asc';
-            } else {
-                sortConfig.key = key;
-                sortConfig.direction = 'asc';
-            }
-            renderTable();
-        }
-
-        // --- MODAL & FORM ACTIONS ---
-        function openJobModal() {
-            document.getElementById('jobModal').classList.add('active');
-            document.getElementById('modalTitle').textContent = 'Add New Job';
-            document.getElementById('editIndex').value = '';
-            clearForm();
-        }
+      <main className="flex-1 p-6 max-w-[1920px] mx-auto w-full">
         
-        function closeModal(modalId) {
-            document.getElementById(modalId).classList.remove('active');
-        }
+        {/* Updated Dashboard Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+            <div className="flex justify-between items-start mb-2">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Projects</p>
+              <div className="bg-blue-50 p-2 rounded-lg"><Layers className="h-4 w-4 text-blue-600" /></div>
+            </div>
+            <p className="text-2xl font-bold text-slate-800">{stats.totalProjects}</p>
+          </div>
 
-        function clearForm() {
-            // Reset all inputs
-            document.querySelectorAll('#jobModal input, #jobModal select, #jobModal textarea').forEach(el => {
-                if(el.type === 'checkbox') el.checked = false;
-                else el.value = '';
-            });
-        }
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+            <div className="flex justify-between items-start mb-2">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Total Value</p>
+              <div className="bg-indigo-50 p-2 rounded-lg"><DollarSign className="h-4 w-4 text-indigo-600" /></div>
+            </div>
+            <p className="text-2xl font-bold text-slate-800">₹{stats.totalRevenue.toLocaleString()}</p>
+          </div>
 
-        function saveJob() {
-            // Required check
-            const jcNo = document.getElementById('jcNo').value.trim();
-            const cust = document.getElementById('customerName').value;
-            const date = document.getElementById('jcDate').value;
-            const idx = document.getElementById('editIndex').value;
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+            <div className="flex justify-between items-start mb-2">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Received</p>
+              <div className="bg-green-50 p-2 rounded-lg"><Wallet className="h-4 w-4 text-green-600" /></div>
+            </div>
+            <p className="text-2xl font-bold text-green-700">₹{stats.totalReceived.toLocaleString()}</p>
+          </div>
 
-            if(!jcNo || !cust || !date) {
-                showToast('⚠️ Please fill required fields (*)', 'error');
-                return;
-            }
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+            <div className="flex justify-between items-start mb-2">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Outstanding</p>
+              <div className="bg-red-50 p-2 rounded-lg"><Calendar className="h-4 w-4 text-red-600" /></div>
+            </div>
+            <p className="text-2xl font-bold text-red-600">₹{stats.outstanding.toLocaleString()}</p>
+          </div>
 
-            // DUPLICATE CHECK
-            if (idx === '') { // Only check on new jobs
-                const exists = jobs.some(j => j.jcNo.toLowerCase() === jcNo.toLowerCase());
-                if (exists) {
-                    showToast('⚠️ JC Number already exists!', 'error');
-                    return;
-                }
-            }
+           <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
+            <div className="flex justify-between items-start mb-2">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Inv. Pipeline</p>
+              <div className="bg-orange-50 p-2 rounded-lg"><ClipboardList className="h-4 w-4 text-orange-600" /></div>
+            </div>
+            <p className="text-xl font-bold text-slate-700 truncate" title="Value of 'Invoice to be done'">₹{stats.pipelineValue.toLocaleString()}</p>
+          </div>
+        </div>
 
-            // Gather Data
-            const products = Array.from(document.querySelectorAll('.product-cb:checked')).map(cb => cb.value).join(', ');
-            const details = document.getElementById('productDetails').value;
-            const fullProduct = products + (details ? (products ? ' | ' : '') + details : '');
+        <div className="flex justify-between items-center mb-4">
+          <div className="relative w-96">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search..."
+              value={searchTerm}
+              onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm text-sm"
+            />
+          </div>
+          <button onClick={initiateNew} className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium shadow-sm">
+            <Plus className="mr-2 h-4 w-4" />
+            Add New Record
+          </button>
+        </div>
 
-            const jobData = {
-                jcNo, customerName: cust, jcDate: date,
-                stateCode: document.getElementById('stateCode').value,
-                shippingLocation: document.getElementById('shippingLocation').value,
-                address: document.getElementById('address').value,
-                product: fullProduct,
-                size: document.getElementById('size').value,
-                frame: document.getElementById('frame').value,
-                routerACP: document.getElementById('routerACP').value,
-                routerAcrylic: document.getElementById('routerAcrylic').value,
-                routerBackCover: document.getElementById('routerBackCover').value,
-                letterMaking: document.getElementById('letterMaking').value,
-                painting: document.getElementById('painting').value,
-                furniture: document.getElementById('furniture').value,
-                layout: document.getElementById('layout').value,
-                printPlot: document.getElementById('printPlot').value,
-                alu: document.getElementById('alu').value,
-                assembly: document.getElementById('assembly').value,
-                packing: document.getElementById('packing').value,
-                stores: document.getElementById('stores').value,
-                actualDispatchDate: document.getElementById('actualDispatchDate').value,
-                deliveryAt: document.getElementById('deliveryAt').value,
-                remark: document.getElementById('remark').value
-            };
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+          {data.length > 0 ? (
+            <>
+              <div className="overflow-x-auto custom-scrollbar">
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
+                    <tr>
+                      {tableColumns.map((col, index) => (
+                        <th 
+                          key={col} 
+                          onClick={() => requestSort(col)}
+                          className={`
+                            px-4 py-3 font-medium whitespace-nowrap cursor-pointer hover:bg-slate-100 transition-colors select-none
+                            ${index === 0 ? 'sticky left-0 bg-slate-50 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]' : ''}
+                          `}
+                        >
+                          <div className="flex items-center gap-1">
+                            {col}
+                            {sortConfig.key === col ? (
+                              sortConfig.direction === 'asc' ? <ArrowUp className="h-3 w-3 text-blue-600" /> : <ArrowDown className="h-3 w-3 text-blue-600" />
+                            ) : (
+                              <ArrowUpDown className="h-3 w-3 text-slate-300" />
+                            )}
+                          </div>
+                        </th>
+                      ))}
+                      <th className="px-4 py-3 font-medium sticky right-0 bg-slate-50 z-10 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)] text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {paginatedData.map((row) => (
+                      <tr key={row._id} className="hover:bg-blue-50/50 transition-colors group">
+                        {tableColumns.map((col, index) => {
+                          const type = getColumnType(col);
+                          return (
+                            <td 
+                              key={col} 
+                              className={`px-4 py-3 text-slate-600 whitespace-nowrap ${index === 0 ? 'sticky left-0 bg-white group-hover:bg-blue-50/50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] font-medium text-slate-900' : ''}`}
+                            >
+                              {col === 'Status' ? <StatusBadge status={row[col]} /> :
+                               type === 'date' ? formatDisplayDate(row[col]) :
+                               type === 'number' ? formatNumber(row[col]) :
+                               row[col]
+                              }
+                            </td>
+                          );
+                        })}
+                        <td className="px-4 py-3 sticky right-0 bg-white group-hover:bg-blue-50/50 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.05)] text-center">
+                          <button
+                            onClick={() => initiateEdit(row)}
+                            className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-md transition"
+                            title="Edit Details"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              
+              <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200 bg-slate-50">
+                <span className="text-sm text-slate-500">
+                  Showing <span className="font-medium">{(currentPage - 1) * rowsPerPage + 1}</span> to <span className="font-medium">{Math.min(currentPage * rowsPerPage, sortedData.length)}</span> of <span className="font-medium">{sortedData.length}</span> results
+                </span>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed text-slate-600"
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
+                  <button 
+                    onClick={() => setCurrentPage(p => Math.min(pageCount, p + 1))}
+                    disabled={currentPage === pageCount}
+                    className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed text-slate-600"
+                  >
+                    <ChevronRight className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-24 text-slate-400">
+              <FileSpreadsheet className="h-16 w-16 mb-4 opacity-50" />
+              <p className="text-lg font-medium text-slate-600">No data available</p>
+              <p className="text-sm">Upload an Excel file to get started</p>
+            </div>
+          )}
+        </div>
+      </main>
 
-            if (idx !== '') {
-                jobs[parseInt(idx)] = jobData;
-                showToast('✅ Job updated successfully');
-            } else {
-                jobs.push(jobData);
-                showToast('✅ Job added successfully');
-            }
+      {isEditing && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+              <h2 className="text-lg font-bold text-slate-800">
+                {currentId ? 'Edit Project Record' : 'Create New Project'}
+              </h2>
+              <button onClick={closeForm} className="text-slate-400 hover:text-slate-600">
+                <X className="h-6 w-6" />
+              </button>
+            </div>
 
-            saveData();
-            renderTable();
-            closeModal('jobModal');
-        }
+            <div className="flex border-b border-slate-200 px-6 pt-2 bg-white sticky top-0 overflow-x-auto custom-scrollbar">
+              {Object.keys(dynamicFieldGroups).map(group => (
+                <button
+                  key={group}
+                  onClick={() => setActiveTab(group)}
+                  className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                    activeTab === group 
+                      ? 'border-blue-600 text-blue-600' 
+                      : 'border-transparent text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {group}
+                </button>
+              ))}
+            </div>
 
-        function editJob(index) {
-            const job = jobs[index];
-            document.getElementById('editIndex').value = index;
-            document.getElementById('modalTitle').textContent = 'Edit Job: ' + job.jcNo;
-            document.getElementById('jobModal').classList.add('active');
-            
-            // Populate Fields
-            document.getElementById('jcNo').value = job.jcNo;
-            document.getElementById('customerName').value = job.customerName;
-            document.getElementById('jcDate').value = job.jcDate;
-            document.getElementById('stateCode').value = job.stateCode || '';
-            document.getElementById('shippingLocation').value = job.shippingLocation || '';
-            document.getElementById('address').value = job.address || '';
-            document.getElementById('size').value = job.size || '';
-            document.getElementById('frame').value = job.frame || '';
-            // ... Populate all dropdowns (simplified for brevity, logic is repetitive)
-            const dropdowns = ['routerACP','routerAcrylic','routerBackCover','letterMaking','painting','furniture','layout','printPlot','alu','assembly','packing','stores'];
-            dropdowns.forEach(id => document.getElementById(id).value = job[id] || '');
+            <div className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-slate-50/50">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {dynamicFieldGroups[activeTab]?.map(col => {
+                  const type = getColumnType(col);
+                  return (
+                    <div key={col} className="flex flex-col gap-1">
+                      <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider truncate" title={col}>{col}</label>
+                      {col === 'Status' ? (
+                        <select
+                          value={formData[col] || ''}
+                          onChange={e => handleInputChange(col, e.target.value)}
+                          className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 text-sm bg-white"
+                        >
+                          <option value="">Select Status</option>
+                          {STATUS_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      ) : type === 'date' ? (
+                        <input
+                          type="date"
+                          value={formData[col] || ''}
+                          onChange={e => handleInputChange(col, e.target.value)}
+                          className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 text-sm"
+                        />
+                      ) : (
+                        <input
+                          type={type === 'number' ? "number" : "text"}
+                          value={formData[col] || ''}
+                          onChange={e => handleInputChange(col, e.target.value)}
+                          readOnly={col === 'Payment Balance' || col === 'Aging'}
+                          className={`px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 text-sm ${
+                            (col === 'Payment Balance' || col === 'Aging') ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white'
+                          }`}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
 
-            document.getElementById('actualDispatchDate').value = job.actualDispatchDate || '';
-            document.getElementById('deliveryAt').value = job.deliveryAt || '';
-            document.getElementById('remark').value = job.remark || '';
-
-            // Handle Product Checkboxes
-            const parts = (job.product || '').split(' | ');
-            const prodList = parts[0].split(', ');
-            document.querySelectorAll('.product-cb').forEach(cb => {
-                cb.checked = prodList.includes(cb.value);
-            });
-            document.getElementById('productDetails').value = parts[1] || '';
-        }
-
-        // --- DELETE & CLEAR ACTIONS (SAFE MODE) ---
-        let deleteTargetIndex = null;
-
-        function confirmDelete(index) {
-            deleteTargetIndex = index;
-            document.getElementById('confirmTitle').textContent = "Delete Job?";
-            document.getElementById('confirmMessage').textContent = "Are you sure you want to remove " + jobs[index].jcNo + "?";
-            
-            const btn = document.getElementById('confirmActionBtn');
-            btn.onclick = performDelete;
-            btn.textContent = "Yes, Delete";
-            
-            document.getElementById('confirmModal').classList.add('active');
-        }
-
-        function performDelete() {
-            if (deleteTargetIndex !== null) {
-                jobs.splice(deleteTargetIndex, 1);
-                saveData();
-                renderTable();
-                showToast('🗑️ Job deleted');
-                closeModal('confirmModal');
-            }
-        }
-
-        function confirmClearAll() {
-            if (jobs.length === 0) return showToast('No data to clear', 'error');
-            
-            document.getElementById('confirmTitle').textContent = "Clear All Data?";
-            document.getElementById('confirmMessage').textContent = "This will wipe all " + jobs.length + " jobs. Make sure you have a Backup!";
-            
-            const btn = document.getElementById('confirmActionBtn');
-            btn.onclick = function() {
-                jobs = [];
-                saveData();
-                renderTable();
-                showToast('🗑️ All jobs cleared');
-                closeModal('confirmModal');
-            };
-            btn.textContent = "Nuke Everything";
-            
-            document.getElementById('confirmModal').classList.add('active');
-        }
-
-        // --- CUSTOMER MANAGEMENT ---
-        function openCustomerModal() {
-            document.getElementById('customerListInput').value = customers.join('\n');
-            document.getElementById('customerModal').classList.add('active');
-        }
-
-        function saveCustomers() {
-            const raw = document.getElementById('customerListInput').value;
-            customers = raw.split('\n').map(s => s.trim()).filter(s => s !== '');
-            localStorage.setItem('masterTrackerPro_Customers', JSON.stringify(customers));
-            populateCustomerSelect();
-            closeModal('customerModal');
-            showToast('✅ Customer list updated');
-        }
-
-        function populateCustomerSelect() {
-            const sel = document.getElementById('customerName');
-            sel.innerHTML = '<option value="">Select Customer...</option>';
-            customers.forEach(c => {
-                const opt = document.createElement('option');
-                opt.value = c;
-                opt.textContent = c;
-                sel.appendChild(opt);
-            });
-        }
-
-        // --- EXPORT TO EXCEL (FIXED) ---
-        function exportToExcel() {
-            if (jobs.length === 0) return showToast('No data to export', 'error');
-
-            // 1. Prepare Data
-            const data = jobs.map(j => ({
-                "JC No": j.jcNo,
-                "Customer": j.customerName,
-                "JC Date": j.jcDate,
-                "Status": j.actualDispatchDate ? "Completed" : "Pending",
-                "State": j.stateCode,
-                "Shipping": j.shippingLocation,
-                "Address": j.address,
-                "Product": j.product,
-                "Size": j.size,
-                "Dispatch Date": j.actualDispatchDate,
-                "Remark": j.remark
-            }));
-
-            // 2. Create Sheet
-            const ws = XLSX.utils.json_to_sheet(data);
-
-            // 3. Apply Styles (Blue Header)
-            const range = XLSX.utils.decode_range(ws['!ref']);
-            for (let C = range.s.c; C <= range.e.c; ++C) {
-                const addr = XLSX.utils.encode_cell({ r: 0, c: C });
-                if (!ws[addr]) continue;
-                ws[addr].s = {
-                    fill: { fgColor: { rgb: "2563EB" } },
-                    font: { color: { rgb: "FFFFFF" }, bold: true },
-                    alignment: { horizontal: "center" }
-                };
-            }
-
-            // 4. Auto-width hints
-            ws['!cols'] = [{wch:15}, {wch:30}, {wch:12}, {wch:10}, {wch:8}, {wch:20}, {wch:30}, {wch:40}];
-
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, "Tracker Data");
-            XLSX.writeFile(wb, "Master_Tracker_Export.xlsx");
-            showToast('📥 Excel file generated!');
-        }
-
-        // --- UTILS ---
-        function showToast(msg, type='success') {
-            const container = document.getElementById('toast-container');
-            const el = document.createElement('div');
-            el.className = 'toast';
-            el.innerHTML = msg;
-            if(type === 'error') el.style.borderLeft = '4px solid #f44336';
-            else el.style.borderLeft = '4px solid #4CAF50';
-            
-            container.appendChild(el);
-            setTimeout(() => {
-                el.style.opacity = '0';
-                setTimeout(() => el.remove(), 300);
-            }, 3000);
-        }
-    </script>
-</body>
-</html>
+            <div className="p-6 border-t border-slate-200 bg-white flex justify-end gap-3">
+              <button onClick={closeForm} className="px-5 py-2.5 text-slate-600 font-medium hover:bg-slate-100 rounded-lg transition text-sm">Cancel</button>
+              <button onClick={handleSave} className="px-5 py-2.5 bg-blue-600 text-white font-medium hover:bg-blue-700 rounded-lg shadow-lg shadow-blue-600/20 transition text-sm flex items-center">
+                <CheckCircle className="mr-2 h-4 w-4" />
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
