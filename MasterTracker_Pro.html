@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Master Job Tracker Pro</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1e40af;
+            --success: #16a34a;
+            --danger: #dc2626;
+            --warning: #ca8a04;
+            --bg: #f3f4f6;
+            --surface: #ffffff;
+            --text: #1f2937;
+            --border: #e5e7eb;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            padding: 20px;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+        }
+
+        /* --- Layout & Container --- */
+        .container {
+            background: var(--surface);
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 15px;
+        }
+
+        h1 { margin: 0; color: var(--primary-dark); font-size: 24px; display: flex; align-items: center; gap: 10px; }
+
+        /* --- Buttons & Inputs --- */
+        .btn {
+            padding: 8px 16px;
+            margin: 0 4px;
+            cursor: pointer;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 13px;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn:hover { filter: brightness(95%); transform: translateY(-1px); }
+        .btn:active { transform: translateY(0); }
+        
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-secondary { background: #64748b; color: white; }
+        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+
+        .controls-bar {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 20px;
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        input, select, textarea {
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: 2px solid var(--primary);
+            border-color: transparent;
+        }
+
+        /* --- Table Styling --- */
+        .table-wrapper {
+            overflow-x: auto;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        table { width: 100%; border-collapse: collapse; min-width: 1200px; }
+        
+        th {
+            background: #f1f5f9;
+            color: var(--text);
+            font-weight: 700;
+            text-align: left;
+            padding: 12px;
+            border-bottom: 2px solid var(--border);
+            position: sticky;
+            top: 0;
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+        }
+        th:hover { background: #e2e8f0; }
+        th::after { content: ' ↕'; font-size: 10px; color: #94a3b8; }
+        
+        td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            font-size: 13px;
+            vertical-align: top;
+        }
+        tr:hover td { background: #f8fafc; }
+
+        /* --- Badges & Status --- */
+        .badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            display: inline-block;
+        }
+        .badge-green { background: #dcfce7; color: #166534; }
+        .badge-orange { background: #ffedd5; color: #9a3412; }
+        .badge-red { background: #fee2e2; color: #991b1b; }
+
+        /* --- Modal System --- */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(2px);
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .modal.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 1;
+        }
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 900px;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            animation: slideIn 0.3s ease-out;
+        }
+        @keyframes slideIn {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-body { padding: 20px; overflow-y: auto; }
+        .modal-footer {
+            padding: 20px;
+            border-top: 1px solid var(--border);
+            text-align: right;
+            background: #f9fafb;
+            border-radius: 0 0 12px 12px;
+        }
+
+        /* --- Forms --- */
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+        }
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 10px;
+            padding: 15px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .full-width { grid-column: 1 / -1; }
+
+        /* --- Toast Notifications --- */
+        #toast-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 2000;
+        }
+        .toast {
+            background: #333;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            margin-top: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: slideInRight 0.3s;
+        }
+        @keyframes slideInRight {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        /* --- Confirm Modal Specifics --- */
+        .confirm-modal-content { max-width: 400px; text-align: center; }
+        .confirm-icon { font-size: 48px; margin-bottom: 10px; display: block; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="header-row">
+            <h1>📋 Master Job Tracker <span style="font-size: 12px; color: #666; font-weight: normal; margin-top: 5px;">Pro Edition</span></h1>
+            <div>
+                <button class="btn btn-secondary" onclick="openCustomerModal()">👥 Manage Customers</button>
+                <button class="btn btn-secondary" onclick="backupData()">💾 Backup Data</button>
+                <label class="btn btn-secondary" style="margin: 0 4px;">
+                    📂 Restore
+                    <input type="file" id="restoreInput" accept=".json" style="display: none;" onchange="restoreData(this)">
+                </label>
+            </div>
+        </div>
+        
+        <div class="controls-bar">
+            <input type="text" id="searchInput" placeholder="🔍 Search JC, Customer, or Product..." style="width: 300px;">
+            <select id="filterStatus" style="width: 150px;">
+                <option value="">All Status</option>
+                <option value="pending">⏳ Pending</option>
+                <option value="completed">✅ Completed</option>
+            </select>
+            <div style="flex-grow: 1;"></div>
+            <button class="btn btn-primary" onclick="openJobModal()">➕ Add New Job</button>
+            <button class="btn btn-success" onclick="exportToExcel()">📥 Export Excel</button>
+            <button class="btn btn-danger" onclick="confirmClearAll()">🗑️ Clear All</button>
+        </div>
+        
+        <div class="table-wrapper">
+            <table id="mainTable">
+                <thead>
+                    <tr>
+                        <th onclick="sortTable('jcNo')">JC No</th>
+                        <th onclick="sortTable('customerName')">Customer</th>
+                        <th onclick="sortTable('jcDate')">JC Date</th>
+                        <th onclick="sortTable('pendingDays')">Status</th>
+                        <th>State</th>
+                        <th>Shipping</th>
+                        <th>Address</th>
+                        <th>Product Details</th>
+                        <th>Size</th>
+                        <th>Frame</th>
+                        <th>R-ACP</th>
+                        <th>R-Acrylic</th>
+                        <th>R-Back</th>
+                        <th>Letter</th>
+                        <th>Paint</th>
+                        <th>Furn.</th>
+                        <th>Layout</th>
+                        <th>Print</th>
+                        <th>Alu</th>
+                        <th>Assem.</th>
+                        <th>Pack</th>
+                        <th>Store</th>
+                        <th onclick="sortTable('actualDispatchDate')">Dispatch</th>
+                        <th>Delivery</th>
+                        <th>Remark</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="jobTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="toast-container"></div>
+
+    <div id="jobModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Add New Job</h2>
+                <button class="btn-outline" onclick="closeModal('jobModal')" style="border:none; font-size: 20px;">✕</button>
+            </div>
+            
+            <div class="modal-body">
+                <input type="hidden" id="editIndex">
+                <div class="form-grid">
+                    <div>
+                        <label>JC No <span style="color:red">*</span></label>
+                        <input type="text" id="jcNo" required placeholder="Unique Job Code">
+                    </div>
+                    <div>
+                        <label>Customer <span style="color:red">*</span></label>
+                        <select id="customerName" required>
+                            <option value="">Select Customer...</option>
+                            </select>
+                    </div>
+                    <div>
+                        <label>JC Date <span style="color:red">*</span></label>
+                        <input type="date" id="jcDate" required>
+                    </div>
+                    <div>
+                        <label>State Code</label>
+                        <input type="text" id="stateCode">
+                    </div>
+                    <div>
+                        <label>Shipping Location</label>
+                        <input type="text" id="shippingLocation">
+                    </div>
+                    <div>
+                        <label>Address</label>
+                        <input type="text" id="address">
+                    </div>
+
+                    <div class="full-width">
+                        <label style="margin-bottom: 8px;">Product Selection</label>
+                        <div class="product-grid">
+                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Backlit Signs"> Backlit Signs</label>
+                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Nonlit Signs"> Nonlit Signs</label>
+                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="ACP/ACM Signs"> ACP/ACM Signs</label>
+                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="3D Letters"> 3D Letters</label>
+                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Lollypop Sign"> Lollypop Sign</label>
+                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Pylons/Totems"> Pylons/Totems</label>
+                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Spreadors"> Spreadors</label>
+                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Fabric Signs"> Fabric Signs</label>
+                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Printed Vinyl"> Printed Vinyl</label>
+                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Glass Film"> Glass Film</label>
+                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Internal Signs"> Internal Signs</label>
+                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Ext Campus"> Ext Campus</label>
+                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Furniture"> Furniture</label>
+                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Decor Lights"> Decor Lights</label>
+                            <label class="checkbox-label"><input type="checkbox" class="product-cb" value="Other"> Other</label>
+                        </div>
+                        <input type="text" id="productDetails" placeholder="Additional product notes..." style="margin-top: 10px;">
+                    </div>
+
+                    <div><label>Size</label><input type="text" id="size"></div>
+                    <div><label>Frame</label><select id="frame"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
+                    <div><label>Router ACP</label><select id="routerACP"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
+                    <div><label>Router Acrylic</label><select id="routerAcrylic"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
+                    <div><label>Router Back</label><select id="routerBackCover"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
+                    <div><label>Letter Making</label><select id="letterMaking"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
+                    <div><label>Painting</label><select id="painting"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
+                    <div><label>Furniture</label><select id="furniture"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
+                    <div><label>Layout</label><select id="layout"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
+                    <div><label>Print/Plot</label><select id="printPlot"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
+                    <div><label>Alu</label><select id="alu"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
+                    <div><label>Assembly</label><select id="assembly"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
+                    <div><label>Packing</label><select id="packing"><option value="">-</option><option>Yes</option><option>No</option><option>NA</option></select></div>
+                    <div><label>Stores</label><select id="stores"><option value="">-</option><option>Yes</option><option>No</option></select></div>
+
+                    <div>
+                        <label>Actual Dispatch</label>
+                        <input type="date" id="actualDispatchDate">
+                    </div>
+                    <div>
+                        <label>Delivery At</label>
+                        <input type="text" id="deliveryAt">
+                    </div>
+                    <div class="full-width">
+                        <label>Remarks</label>
+                        <textarea id="remark" rows="2"></textarea>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('jobModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveJob()">💾 Save Job</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="customerModal" class="modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h2>👥 Manage Customers</h2>
+                <button class="btn-outline" onclick="closeModal('customerModal')" style="border:none;">✕</button>
+            </div>
+            <div class="modal-body">
+                <p style="font-size: 13px; color: #666; margin-bottom: 10px;">Enter one customer name per line:</p>
+                <textarea id="customerListInput" rows="15" style="width: 100%; font-family: monospace;"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('customerModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveCustomers()">Update List</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="confirmModal" class="modal">
+        <div class="modal-content confirm-modal-content">
+            <div class="modal-body">
+                <span class="confirm-icon">⚠️</span>
+                <h3 id="confirmTitle">Are you sure?</h3>
+                <p id="confirmMessage" style="color: #666;">This action cannot be undone.</p>
+                <div style="margin-top: 20px; display: flex; justify-content: center; gap: 10px;">
+                    <button class="btn btn-secondary" onclick="closeModal('confirmModal')">Cancel</button>
+                    <button id="confirmActionBtn" class="btn btn-danger">Yes, Delete</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- STATE MANAGEMENT ---
+        let jobs = [];
+        let customers = [
+            "ADITYA BIRLA FASHION AND RETAIL LIMITED",
+            "Heritage Foods Limited",
+            "BlackBerrys",
+            "THIRD WAVE COFFEE",
+            "Milky Mist"
+        ];
+        let sortConfig = { key: null, direction: 'asc' };
+
+        // --- INITIALIZATION ---
+        window.onload = function() {
+            loadData();
+            loadCustomers();
+            populateCustomerSelect();
+            renderTable();
+            
+            // Event Listeners
+            document.getElementById('searchInput').addEventListener('input', renderTable);
+            document.getElementById('filterStatus').addEventListener('change', renderTable);
+        };
+
+        // --- DATA HANDLING (LOCAL STORAGE & BACKUP) ---
+        function loadData() {
+            const saved = localStorage.getItem('masterTrackerPro_Jobs');
+            if (saved) jobs = JSON.parse(saved);
+        }
+
+        function saveData() {
+            try {
+                localStorage.setItem('masterTrackerPro_Jobs', JSON.stringify(jobs));
+            } catch (e) {
+                showToast('❌ Storage Error: ' + e.message, 'error');
+            }
+        }
+
+        function loadCustomers() {
+            const saved = localStorage.getItem('masterTrackerPro_Customers');
+            if (saved) customers = JSON.parse(saved);
+        }
+
+        function backupData() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ jobs, customers }));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", "Tracker_Backup_" + new Date().toISOString().slice(0,10) + ".json");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+            showToast('✅ Backup downloaded!');
+        }
+
+        function restoreData(input) {
+            const file = input.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (data.jobs && Array.isArray(data.jobs)) {
+                        jobs = data.jobs;
+                        if (data.customers) customers = data.customers;
+                        
+                        saveData();
+                        localStorage.setItem('masterTrackerPro_Customers', JSON.stringify(customers));
+                        
+                        renderTable();
+                        populateCustomerSelect();
+                        showToast('✅ Data restored successfully!');
+                    } else {
+                        throw new Error("Invalid file format");
+                    }
+                } catch (err) {
+                    showToast('❌ Error restoring file: ' + err.message, 'error');
+                }
+            };
+            reader.readAsText(file);
+            input.value = ''; // Reset
+        }
+
+        // --- CORE LOGIC ---
+        function getPendingDays(jcDate, dispatchDate) {
+            const start = new Date(jcDate);
+            const end = dispatchDate ? new Date(dispatchDate) : new Date();
+            const diff = Math.abs(end - start);
+            return Math.ceil(diff / (1000 * 60 * 60 * 24));
+        }
+
+        function getFilteredAndSortedJobs() {
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            const status = document.getElementById('filterStatus').value;
+
+            let filtered = jobs.filter(job => {
+                const term = search;
+                const inSearch = 
+                    job.jcNo.toLowerCase().includes(term) ||
+                    job.customerName.toLowerCase().includes(term) ||
+                    (job.product && job.product.toLowerCase().includes(term));
+                
+                const isComplete = !!job.actualDispatchDate;
+                const inStatus = status === '' || 
+                    (status === 'completed' && isComplete) || 
+                    (status === 'pending' && !isComplete);
+
+                return inSearch && inStatus;
+            });
+
+            if (sortConfig.key) {
+                filtered.sort((a, b) => {
+                    let va = a[sortConfig.key] || '';
+                    let vb = b[sortConfig.key] || '';
+                    
+                    // Special sort for Pending Days (calculated)
+                    if (sortConfig.key === 'pendingDays') {
+                        va = getPendingDays(a.jcDate, a.actualDispatchDate);
+                        vb = getPendingDays(b.jcDate, b.actualDispatchDate);
+                    }
+
+                    if (va < vb) return sortConfig.direction === 'asc' ? -1 : 1;
+                    if (va > vb) return sortConfig.direction === 'asc' ? 1 : -1;
+                    return 0;
+                });
+            }
+
+            return filtered;
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('jobTableBody');
+            tbody.innerHTML = '';
+            
+            const displayJobs = getFilteredAndSortedJobs();
+
+            if (displayJobs.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="26" style="text-align:center; padding: 40px; color: #888;">
+                    <div style="font-size: 40px; margin-bottom: 10px;">📭</div>
+                    No jobs found. Click "Add New Job" to start.
+                </td></tr>`;
+                return;
+            }
+
+            displayJobs.forEach(job => {
+                const originalIndex = jobs.indexOf(job); // Key for actions
+                const days = getPendingDays(job.jcDate, job.actualDispatchDate);
+                const isDone = !!job.actualDispatchDate;
+                
+                // Status Badge Logic
+                let badgeClass = 'badge-orange';
+                let statusText = `${days} Days`;
+                if (isDone) {
+                    badgeClass = 'badge-green';
+                    statusText = 'Completed';
+                } else if (days > 15) {
+                    badgeClass = 'badge-red'; // Late warning
+                }
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="font-weight:bold; color:var(--primary)">${job.jcNo}</td>
+                    <td>${job.customerName}</td>
+                    <td>${job.jcDate}</td>
+                    <td><span class="badge ${badgeClass}">${statusText}</span></td>
+                    <td>${job.stateCode || '-'}</td>
+                    <td>${job.shippingLocation || '-'}</td>
+                    <td>${job.address || '-'}</td>
+                    <td style="max-width: 200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${job.product}">${job.product || '-'}</td>
+                    <td>${job.size || '-'}</td>
+                    <td>${job.frame || '-'}</td>
+                    <td>${job.routerACP || '-'}</td>
+                    <td>${job.routerAcrylic || '-'}</td>
+                    <td>${job.routerBackCover || '-'}</td>
+                    <td>${job.letterMaking || '-'}</td>
+                    <td>${job.painting || '-'}</td>
+                    <td>${job.furniture || '-'}</td>
+                    <td>${job.layout || '-'}</td>
+                    <td>${job.printPlot || '-'}</td>
+                    <td>${job.alu || '-'}</td>
+                    <td>${job.assembly || '-'}</td>
+                    <td>${job.packing || '-'}</td>
+                    <td>${job.stores || '-'}</td>
+                    <td>${job.actualDispatchDate || '-'}</td>
+                    <td>${job.deliveryAt || '-'}</td>
+                    <td>${job.remark || '-'}</td>
+                    <td>
+                        <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="editJob(${originalIndex})">✏️</button>
+                        <button class="btn btn-danger" style="padding:4px 8px; font-size:11px;" onclick="confirmDelete(${originalIndex})">🗑️</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // --- SORTING ---
+        function sortTable(key) {
+            if (sortConfig.key === key) {
+                sortConfig.direction = sortConfig.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortConfig.key = key;
+                sortConfig.direction = 'asc';
+            }
+            renderTable();
+        }
+
+        // --- MODAL & FORM ACTIONS ---
+        function openJobModal() {
+            document.getElementById('jobModal').classList.add('active');
+            document.getElementById('modalTitle').textContent = 'Add New Job';
+            document.getElementById('editIndex').value = '';
+            clearForm();
+        }
+        
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('active');
+        }
+
+        function clearForm() {
+            // Reset all inputs
+            document.querySelectorAll('#jobModal input, #jobModal select, #jobModal textarea').forEach(el => {
+                if(el.type === 'checkbox') el.checked = false;
+                else el.value = '';
+            });
+        }
+
+        function saveJob() {
+            // Required check
+            const jcNo = document.getElementById('jcNo').value.trim();
+            const cust = document.getElementById('customerName').value;
+            const date = document.getElementById('jcDate').value;
+            const idx = document.getElementById('editIndex').value;
+
+            if(!jcNo || !cust || !date) {
+                showToast('⚠️ Please fill required fields (*)', 'error');
+                return;
+            }
+
+            // DUPLICATE CHECK
+            if (idx === '') { // Only check on new jobs
+                const exists = jobs.some(j => j.jcNo.toLowerCase() === jcNo.toLowerCase());
+                if (exists) {
+                    showToast('⚠️ JC Number already exists!', 'error');
+                    return;
+                }
+            }
+
+            // Gather Data
+            const products = Array.from(document.querySelectorAll('.product-cb:checked')).map(cb => cb.value).join(', ');
+            const details = document.getElementById('productDetails').value;
+            const fullProduct = products + (details ? (products ? ' | ' : '') + details : '');
+
+            const jobData = {
+                jcNo, customerName: cust, jcDate: date,
+                stateCode: document.getElementById('stateCode').value,
+                shippingLocation: document.getElementById('shippingLocation').value,
+                address: document.getElementById('address').value,
+                product: fullProduct,
+                size: document.getElementById('size').value,
+                frame: document.getElementById('frame').value,
+                routerACP: document.getElementById('routerACP').value,
+                routerAcrylic: document.getElementById('routerAcrylic').value,
+                routerBackCover: document.getElementById('routerBackCover').value,
+                letterMaking: document.getElementById('letterMaking').value,
+                painting: document.getElementById('painting').value,
+                furniture: document.getElementById('furniture').value,
+                layout: document.getElementById('layout').value,
+                printPlot: document.getElementById('printPlot').value,
+                alu: document.getElementById('alu').value,
+                assembly: document.getElementById('assembly').value,
+                packing: document.getElementById('packing').value,
+                stores: document.getElementById('stores').value,
+                actualDispatchDate: document.getElementById('actualDispatchDate').value,
+                deliveryAt: document.getElementById('deliveryAt').value,
+                remark: document.getElementById('remark').value
+            };
+
+            if (idx !== '') {
+                jobs[parseInt(idx)] = jobData;
+                showToast('✅ Job updated successfully');
+            } else {
+                jobs.push(jobData);
+                showToast('✅ Job added successfully');
+            }
+
+            saveData();
+            renderTable();
+            closeModal('jobModal');
+        }
+
+        function editJob(index) {
+            const job = jobs[index];
+            document.getElementById('editIndex').value = index;
+            document.getElementById('modalTitle').textContent = 'Edit Job: ' + job.jcNo;
+            document.getElementById('jobModal').classList.add('active');
+            
+            // Populate Fields
+            document.getElementById('jcNo').value = job.jcNo;
+            document.getElementById('customerName').value = job.customerName;
+            document.getElementById('jcDate').value = job.jcDate;
+            document.getElementById('stateCode').value = job.stateCode || '';
+            document.getElementById('shippingLocation').value = job.shippingLocation || '';
+            document.getElementById('address').value = job.address || '';
+            document.getElementById('size').value = job.size || '';
+            document.getElementById('frame').value = job.frame || '';
+            // ... Populate all dropdowns (simplified for brevity, logic is repetitive)
+            const dropdowns = ['routerACP','routerAcrylic','routerBackCover','letterMaking','painting','furniture','layout','printPlot','alu','assembly','packing','stores'];
+            dropdowns.forEach(id => document.getElementById(id).value = job[id] || '');
+
+            document.getElementById('actualDispatchDate').value = job.actualDispatchDate || '';
+            document.getElementById('deliveryAt').value = job.deliveryAt || '';
+            document.getElementById('remark').value = job.remark || '';
+
+            // Handle Product Checkboxes
+            const parts = (job.product || '').split(' | ');
+            const prodList = parts[0].split(', ');
+            document.querySelectorAll('.product-cb').forEach(cb => {
+                cb.checked = prodList.includes(cb.value);
+            });
+            document.getElementById('productDetails').value = parts[1] || '';
+        }
+
+        // --- DELETE & CLEAR ACTIONS (SAFE MODE) ---
+        let deleteTargetIndex = null;
+
+        function confirmDelete(index) {
+            deleteTargetIndex = index;
+            document.getElementById('confirmTitle').textContent = "Delete Job?";
+            document.getElementById('confirmMessage').textContent = "Are you sure you want to remove " + jobs[index].jcNo + "?";
+            
+            const btn = document.getElementById('confirmActionBtn');
+            btn.onclick = performDelete;
+            btn.textContent = "Yes, Delete";
+            
+            document.getElementById('confirmModal').classList.add('active');
+        }
+
+        function performDelete() {
+            if (deleteTargetIndex !== null) {
+                jobs.splice(deleteTargetIndex, 1);
+                saveData();
+                renderTable();
+                showToast('🗑️ Job deleted');
+                closeModal('confirmModal');
+            }
+        }
+
+        function confirmClearAll() {
+            if (jobs.length === 0) return showToast('No data to clear', 'error');
+            
+            document.getElementById('confirmTitle').textContent = "Clear All Data?";
+            document.getElementById('confirmMessage').textContent = "This will wipe all " + jobs.length + " jobs. Make sure you have a Backup!";
+            
+            const btn = document.getElementById('confirmActionBtn');
+            btn.onclick = function() {
+                jobs = [];
+                saveData();
+                renderTable();
+                showToast('🗑️ All jobs cleared');
+                closeModal('confirmModal');
+            };
+            btn.textContent = "Nuke Everything";
+            
+            document.getElementById('confirmModal').classList.add('active');
+        }
+
+        // --- CUSTOMER MANAGEMENT ---
+        function openCustomerModal() {
+            document.getElementById('customerListInput').value = customers.join('\n');
+            document.getElementById('customerModal').classList.add('active');
+        }
+
+        function saveCustomers() {
+            const raw = document.getElementById('customerListInput').value;
+            customers = raw.split('\n').map(s => s.trim()).filter(s => s !== '');
+            localStorage.setItem('masterTrackerPro_Customers', JSON.stringify(customers));
+            populateCustomerSelect();
+            closeModal('customerModal');
+            showToast('✅ Customer list updated');
+        }
+
+        function populateCustomerSelect() {
+            const sel = document.getElementById('customerName');
+            sel.innerHTML = '<option value="">Select Customer...</option>';
+            customers.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c;
+                opt.textContent = c;
+                sel.appendChild(opt);
+            });
+        }
+
+        // --- EXPORT TO EXCEL (FIXED) ---
+        function exportToExcel() {
+            if (jobs.length === 0) return showToast('No data to export', 'error');
+
+            // 1. Prepare Data
+            const data = jobs.map(j => ({
+                "JC No": j.jcNo,
+                "Customer": j.customerName,
+                "JC Date": j.jcDate,
+                "Status": j.actualDispatchDate ? "Completed" : "Pending",
+                "State": j.stateCode,
+                "Shipping": j.shippingLocation,
+                "Address": j.address,
+                "Product": j.product,
+                "Size": j.size,
+                "Dispatch Date": j.actualDispatchDate,
+                "Remark": j.remark
+            }));
+
+            // 2. Create Sheet
+            const ws = XLSX.utils.json_to_sheet(data);
+
+            // 3. Apply Styles (Blue Header)
+            const range = XLSX.utils.decode_range(ws['!ref']);
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                const addr = XLSX.utils.encode_cell({ r: 0, c: C });
+                if (!ws[addr]) continue;
+                ws[addr].s = {
+                    fill: { fgColor: { rgb: "2563EB" } },
+                    font: { color: { rgb: "FFFFFF" }, bold: true },
+                    alignment: { horizontal: "center" }
+                };
+            }
+
+            // 4. Auto-width hints
+            ws['!cols'] = [{wch:15}, {wch:30}, {wch:12}, {wch:10}, {wch:8}, {wch:20}, {wch:30}, {wch:40}];
+
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Tracker Data");
+            XLSX.writeFile(wb, "Master_Tracker_Export.xlsx");
+            showToast('📥 Excel file generated!');
+        }
+
+        // --- UTILS ---
+        function showToast(msg, type='success') {
+            const container = document.getElementById('toast-container');
+            const el = document.createElement('div');
+            el.className = 'toast';
+            el.innerHTML = msg;
+            if(type === 'error') el.style.borderLeft = '4px solid #f44336';
+            else el.style.borderLeft = '4px solid #4CAF50';
+            
+            container.appendChild(el);
+            setTimeout(() => {
+                el.style.opacity = '0';
+                setTimeout(() => el.remove(), 300);
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
